@@ -8,6 +8,9 @@ from config import settings
 app = FastAPI(title=settings.PROJECT_NAME, version="1.0.0")
 producer = None
 
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
 
 class BehavioralMetadata(BaseModel):
     time_to_complete_ms: int = Field(ge=0)
