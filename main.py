@@ -1,5 +1,5 @@
 import json
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, HTTPException, status, Header
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
 from aiokafka import AIOKafkaProducer
@@ -48,12 +48,14 @@ async def shutdown_event():
     global producer
     if producer:
         await producer.stop()
-
-
 @app.post("/api/v1/transactions", status_code=status.HTTP_201_CREATED)
-async def receive_transaction(tx: Transaction):
+async def receive_transaction(
+    tx: Transaction,
+    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+):
     try:
         transaction_data = tx.model_dump()
+        transaction_data["idempotency_key"] = idempotency_key
         transaction_data["received_at"] = datetime.now(timezone.utc).isoformat()
 
         await producer.send_and_wait(
