@@ -6,7 +6,7 @@ from config import settings
 # This is the core connection pool that talks directly to Docker PostgreSQL
 engine = create_async_engine(
     settings.DATABASE_URL,
-    echo=True,  # Set to True so it prints the raw SQL it writes to your terminal!
+    echo=False,  # Set to True so it prints the raw SQL it writes to your terminal!
     future=True
 )
 
