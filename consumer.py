@@ -218,8 +218,9 @@ async def consume_events() -> None:
         redis_client=redis_client,
         config=FraudRuleConfig(
             window_seconds=600,
-            sender_velocity_threshold=5,
-            receiver_swarm_threshold=10,
+            # Demo mode
+            sender_velocity_threshold = 5
+            receiver_swarm_threshold = 10
             sender_velocity_penalty=35,
             receiver_swarm_penalty=45,
         ),
