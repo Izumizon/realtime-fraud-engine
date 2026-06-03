@@ -38,6 +38,7 @@ async def simulate_transactions():
 
             payload = {
                 "transaction_id": str(uuid.uuid4()),
+                "trace_id": str(uuid.uuid4()),
                 "user_id": f"user_{random.randint(1000, 1050)}",
                 "merchant_id": random.choice(MERCHANTS),
                 "amount": pounds_to_minor_units(amount_major),

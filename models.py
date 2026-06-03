@@ -12,6 +12,7 @@ class TransactionRecord(Base):
 
     transaction_id = Column(String, primary_key=True, index=True)
 
+    trace_id = Column(String, index=True, nullable=False)
     user_id = Column(String, index=True, nullable=False)
     merchant_id = Column(String, index=True, nullable=False)
 

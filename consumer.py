@@ -1,8 +1,7 @@
 import asyncio
 import json
 from typing import Any
-from uuid import UUID
-
+from uuid import UUID, uuid4
 from aiokafka import AIOKafkaConsumer
 from redis.exceptions import RedisError
 from sqlalchemy.dialects.postgresql import insert
@@ -86,6 +85,7 @@ async def save_transaction_to_ledger(
         insert(TransactionRecord)
         .values(
             transaction_id=tx_data["transaction_id"],
+            trace_id=tx_data["trace_id"],
             user_id=tx_data["user_id"],
             merchant_id=tx_data["merchant_id"],
             amount=tx_data["amount"],
@@ -116,6 +116,8 @@ async def process_transaction(
     3. Route the final decision.
     4. Persist to PostgreSQL ledger.
     """
+    tx_data.setdefault("trace_id", str(uuid4()))
+    trace_id = tx_data["trace_id"]
 
     static_score, static_reasons = calculate_static_risk_score(tx_data)
 
@@ -158,7 +160,9 @@ async def process_transaction(
 
     if final_status == "DECLINED":
         print(
-            f"🚫 [BLOCKED] Tx={tx_data['transaction_id']} "
+            f"🚫 [BLOCKED] "
+            f"Trace={trace_id} "
+            f"Tx={tx_data['transaction_id']} "
             f"User={tx_data['user_id']} "
             f"Merchant={tx_data['merchant_id']} "
             f"Score={final_score} "
@@ -168,7 +172,9 @@ async def process_transaction(
 
     elif final_status == "STEP-UP_REVIEW":
         print(
-            f"⚠️ [REVIEW] Tx={tx_data['transaction_id']} "
+            f"⚠️ [REVIEW] "
+            f"Trace={trace_id} "
+            f"Tx={tx_data['transaction_id']} "
             f"User={tx_data['user_id']} "
             f"Merchant={tx_data['merchant_id']} "
             f"Score={final_score} "
@@ -178,7 +184,9 @@ async def process_transaction(
 
     else:
         print(
-            f"✅ [APPROVED] Tx={tx_data['transaction_id']} "
+            f"✅ [APPROVED] "
+            f"Trace={trace_id} "
+            f"Tx={tx_data['transaction_id']} "
             f"User={tx_data['user_id']} "
             f"Merchant={tx_data['merchant_id']} "
             f"Score={final_score} "

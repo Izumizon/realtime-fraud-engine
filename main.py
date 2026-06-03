@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 from fastapi import FastAPI, HTTPException, status, Header
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
@@ -51,11 +52,13 @@ async def shutdown_event():
 @app.post("/api/v1/transactions", status_code=status.HTTP_201_CREATED)
 async def receive_transaction(
     tx: Transaction,
-    idempotency_key: str = Header(..., alias="Idempotency-Key"),
+    x_trace_id: str | None = Header(default=None, alias="X-Trace-Id"),
 ):
     try:
+        trace_id = x_trace_id or str(uuid4())
+
         transaction_data = tx.model_dump()
-        transaction_data["idempotency_key"] = idempotency_key
+        transaction_data["trace_id"] = trace_id
         transaction_data["received_at"] = datetime.now(timezone.utc).isoformat()
 
         await producer.send_and_wait(
@@ -63,7 +66,10 @@ async def receive_transaction(
             value=transaction_data,
         )
 
-        return {"status": "QUEUED"}
+        return {
+            "status": "QUEUED",
+            "trace_id": trace_id,
+        }
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
