@@ -1,7 +1,9 @@
 import asyncio
 import json
+import logging
 from typing import Any
 from uuid import UUID, uuid4
+
 from aiokafka import AIOKafkaConsumer
 from redis.exceptions import RedisError
 from sqlalchemy.dialects.postgresql import insert
@@ -17,6 +19,49 @@ from redis_fraud_evaluator import (
     create_redis_client,
 )
 
+
+# ---------------------------------------------------------------------------
+# Structured logging setup
+# ---------------------------------------------------------------------------
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(message)s",
+)
+
+logger = logging.getLogger("fraud_engine")
+
+
+def emit_log(event: str, level: str = "info", **fields: Any) -> None:
+    """
+    Emit one structured JSON log line.
+
+    Why JSON logs?
+    - Easy to search by trace_id.
+    - Easy to ingest into Grafana Loki / ELK later.
+    - Better for audit trails than human-only print strings.
+    """
+
+    payload = {
+        "event": event,
+        "service": "fraud_engine",
+        **fields,
+    }
+
+    message = json.dumps(
+        payload,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=str,
+    )
+
+    log_method = getattr(logger, level, logger.info)
+    log_method(message)
+
+
+# ---------------------------------------------------------------------------
+# Risk scoring
+# ---------------------------------------------------------------------------
 
 def calculate_static_risk_score(tx_data: dict[str, Any]) -> tuple[int, list[str]]:
     """
@@ -69,6 +114,10 @@ def route_transaction(risk_score: int) -> str:
     return "DECLINED"
 
 
+# ---------------------------------------------------------------------------
+# Persistence
+# ---------------------------------------------------------------------------
+
 async def save_transaction_to_ledger(
     tx_data: dict[str, Any],
     final_status: str,
@@ -101,6 +150,10 @@ async def save_transaction_to_ledger(
             await session.execute(stmt)
 
 
+# ---------------------------------------------------------------------------
+# Transaction processing
+# ---------------------------------------------------------------------------
+
 async def process_transaction(
     tx_data: dict[str, Any],
     redis_evaluator: RedisFraudEvaluator,
@@ -109,26 +162,35 @@ async def process_transaction(
     Full transaction evaluation pipeline.
 
     Flow:
-    1. Calculate deterministic APP scam risk.
-    2. Evaluate Redis dynamic risk:
+    1. Ensure trace_id exists.
+    2. Calculate deterministic APP scam risk.
+    3. Evaluate Redis dynamic risk:
        - sender velocity
        - receiver swarm
-    3. Route the final decision.
-    4. Persist to PostgreSQL ledger.
+    4. Route final decision.
+    5. Emit structured audit-style decision log.
+    6. Persist to PostgreSQL ledger.
     """
+
     tx_data.setdefault("trace_id", str(uuid4()))
+
     trace_id = tx_data["trace_id"]
+    transaction_id = tx_data["transaction_id"]
+    user_id = tx_data["user_id"]
+    merchant_id = tx_data["merchant_id"]
 
     static_score, static_reasons = calculate_static_risk_score(tx_data)
 
     redis_reasons: list[str] = []
     redis_eval_ms = 0.0
+    sender_velocity_count: int | None = None
+    receiver_unique_sender_count: int | None = None
 
     try:
         redis_input = TransactionRiskInput(
-            transaction_id=UUID(tx_data["transaction_id"]),
-            user_id=tx_data["user_id"],
-            merchant_id=tx_data["merchant_id"],
+            transaction_id=UUID(transaction_id),
+            user_id=user_id,
+            merchant_id=merchant_id,
             amount=tx_data["amount"],
             currency=tx_data["currency"],
         )
@@ -141,64 +203,69 @@ async def process_transaction(
         final_score = redis_result.risk_score
         redis_reasons = redis_result.reasons
         redis_eval_ms = redis_result.redis_eval_time_ms
+        sender_velocity_count = redis_result.sender_velocity_count
+        receiver_unique_sender_count = redis_result.receiver_unique_sender_count
 
     except RedisError as exc:
         # Redis failure should not crash the consumer.
         # In the cold-path consumer, we degrade to static-only scoring.
         final_score = static_score
         redis_reasons = ["redis_unavailable_static_only"]
-        print(f"⚠️ Redis unavailable during evaluation: {exc}")
+
+        emit_log(
+            event="redis_evaluation_unavailable",
+            level="warning",
+            trace_id=trace_id,
+            transaction_id=transaction_id,
+            user_id=user_id,
+            merchant_id=merchant_id,
+            error=str(exc),
+        )
 
     except Exception as exc:
         # Malformed payloads should be visible and should not silently poison
         # the stream. In a larger system this would go to a DLQ.
+        emit_log(
+            event="transaction_evaluation_failed",
+            level="error",
+            trace_id=trace_id,
+            transaction_id=transaction_id,
+            user_id=user_id,
+            merchant_id=merchant_id,
+            error=str(exc),
+        )
+
         raise RuntimeError(f"Failed to evaluate transaction payload: {exc}") from exc
 
     final_status = route_transaction(final_score)
-
     all_reasons = static_reasons + redis_reasons
 
-    if final_status == "DECLINED":
-        print(
-            f"🚫 [BLOCKED] "
-            f"Trace={trace_id} "
-            f"Tx={tx_data['transaction_id']} "
-            f"User={tx_data['user_id']} "
-            f"Merchant={tx_data['merchant_id']} "
-            f"Score={final_score} "
-            f"Reasons={all_reasons} "
-            f"RedisEval={redis_eval_ms:.2f}ms"
-        )
-
-    elif final_status == "STEP-UP_REVIEW":
-        print(
-            f"⚠️ [REVIEW] "
-            f"Trace={trace_id} "
-            f"Tx={tx_data['transaction_id']} "
-            f"User={tx_data['user_id']} "
-            f"Merchant={tx_data['merchant_id']} "
-            f"Score={final_score} "
-            f"Reasons={all_reasons} "
-            f"RedisEval={redis_eval_ms:.2f}ms"
-        )
-
-    else:
-        print(
-            f"✅ [APPROVED] "
-            f"Trace={trace_id} "
-            f"Tx={tx_data['transaction_id']} "
-            f"User={tx_data['user_id']} "
-            f"Merchant={tx_data['merchant_id']} "
-            f"Score={final_score} "
-            f"Reasons={all_reasons} "
-            f"RedisEval={redis_eval_ms:.2f}ms"
-        )
+    emit_log(
+        event="transaction_decision",
+        trace_id=trace_id,
+        transaction_id=transaction_id,
+        user_id=user_id,
+        merchant_id=merchant_id,
+        amount=tx_data["amount"],
+        currency=tx_data["currency"],
+        status=final_status,
+        risk_score=final_score,
+        reasons=all_reasons,
+        redis_eval_ms=round(redis_eval_ms, 3),
+        sender_velocity_count=sender_velocity_count,
+        receiver_unique_sender_count=receiver_unique_sender_count,
+    )
 
     await save_transaction_to_ledger(
         tx_data=tx_data,
         final_status=final_status,
         risk_score=final_score,
     )
+
+
+# ---------------------------------------------------------------------------
+# Kafka consumer loop
+# ---------------------------------------------------------------------------
 
 async def consume_events() -> None:
     """
@@ -210,8 +277,11 @@ async def consume_events() -> None:
     3. Commit Kafka offset only after PostgreSQL persistence succeeds.
     """
 
-    print("🧠 Fraud Engine Brain waking up...")
-    print(f"🔗 Connecting to Redis at {settings.REDIS_URL}")
+    emit_log(
+        event="fraud_engine_starting",
+        kafka_bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
+        redis_url=settings.REDIS_URL,
+    )
 
     redis_client = create_redis_client(
         RedisSettings(
@@ -239,9 +309,11 @@ async def consume_events() -> None:
     try:
         # Start Redis first so Kafka is not left unclosed if Redis fails.
         await redis_evaluator.start()
-        print("✅ Redis Intelligence Layer online.")
 
-        print(f"🔗 Connecting to Kafka at {settings.KAFKA_BOOTSTRAP_SERVERS}")
+        emit_log(
+            event="redis_intelligence_layer_online",
+            redis_url=settings.REDIS_URL,
+        )
 
         consumer = AIOKafkaConsumer(
             settings.KAFKA_TOPIC_TRANSACTIONS,
@@ -253,7 +325,12 @@ async def consume_events() -> None:
         )
 
         await consumer.start()
-        print("✅ Brain is online: Kafka + Redis Intelligence Layer connected.")
+
+        emit_log(
+            event="kafka_consumer_online",
+            topic=settings.KAFKA_TOPIC_TRANSACTIONS,
+            group_id="fraud_processing_group_v3",
+        )
 
         async for msg in consumer:
             try:
@@ -262,24 +339,41 @@ async def consume_events() -> None:
                     redis_evaluator=redis_evaluator,
                 )
 
+                # Commit offset only after successful ledger persistence.
                 await consumer.commit()
 
-            except Exception as exc:
-                print(
-                    f"❌ Failed to process Kafka message. "
-                    f"Offset NOT committed. Error={exc}"
+                emit_log(
+                    event="kafka_offset_committed",
+                    topic=msg.topic,
+                    partition=msg.partition,
+                    offset=msg.offset,
                 )
+
+            except Exception as exc:
+                # Do not commit offset here.
+                # Kafka can redeliver depending on consumer group behaviour.
+                emit_log(
+                    event="kafka_message_processing_failed",
+                    level="error",
+                    topic=msg.topic,
+                    partition=msg.partition,
+                    offset=msg.offset,
+                    error=str(exc),
+                    action="offset_not_committed",
+                )
+
                 await asyncio.sleep(1)
 
     finally:
-        print("🛑 Shutting down Fraud Engine Brain...")
+        emit_log(event="fraud_engine_shutting_down")
 
         if consumer is not None:
             await consumer.stop()
 
         await redis_evaluator.close()
 
-        print("✅ Shutdown complete.")
+        emit_log(event="fraud_engine_shutdown_complete")
+
 
 if __name__ == "__main__":
     asyncio.run(consume_events())
