@@ -1,7 +1,4 @@
-version: '3.8'
-
 services:
-  # 🐘 PostgreSQL: The Absolute Source of Truth (Ledger & Outbox)
   postgres:
     image: postgres:15-alpine
     container_name: fraud_ledger_db
@@ -17,9 +14,8 @@ services:
       test: ["CMD-SHELL", "pg_isready -U revolut_user -d fraud_engine"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
-  # 🧠 Redis: The Hot Path Cache (Idempotency & Velocity)
   redis:
     image: redis:7-alpine
     container_name: fraud_hot_state
@@ -32,9 +28,8 @@ services:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
-      retries: 5
+      retries: 10
 
-  # 🏗️ Zookeeper: Required for Kafka cluster management
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     container_name: fraud_zookeeper
@@ -44,7 +39,6 @@ services:
     ports:
       - "2181:2181"
 
-  # 🖨️ Kafka: The Event Broker (The Conveyor Belt)
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     container_name: fraud_event_broker
@@ -55,10 +49,91 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+
+  db_init:
+    build: .
+    container_name: fraud_db_init
+    command: python init_db.py
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: revolut_user
+      POSTGRES_PASSWORD: super_secret_password
+      POSTGRES_DB: fraud_engine
+
+  api_gateway:
+    build: .
+    container_name: fraud_api_gateway
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      db_init:
+        condition: service_completed_successfully
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: revolut_user
+      POSTGRES_PASSWORD: super_secret_password
+      POSTGRES_DB: fraud_engine
+
+  fraud_engine:
+    build: .
+    container_name: fraud_engine_consumer
+    command: python consumer.py
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      db_init:
+        condition: service_completed_successfully
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: revolut_user
+      POSTGRES_PASSWORD: super_secret_password
+      POSTGRES_DB: fraud_engine
+
+  traffic_simulator:
+    build: .
+    container_name: fraud_traffic_simulator
+    command: python producer.py
+    depends_on:
+      kafka:
+        condition: service_healthy
+      fraud_engine:
+        condition: service_started
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
 
 volumes:
   pgdata:
