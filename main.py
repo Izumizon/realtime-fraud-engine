@@ -1,6 +1,7 @@
 import hashlib
 import json
 from datetime import UTC, datetime
+from typing import Annotated
 from uuid import UUID, uuid4
 
 from aiokafka import AIOKafkaProducer
@@ -357,8 +358,8 @@ async def health_check():
 @app.post("/api/v1/transactions", status_code=status.HTTP_201_CREATED)
 async def receive_transaction(
     tx: Transaction,
-    idempotency_key: UUID = Header(..., alias="Idempotency-Key"),
-    x_trace_id: str | None = Header(default=None, alias="X-Trace-Id"),
+    idempotency_key: Annotated[UUID, Header(alias="Idempotency-Key")],
+    x_trace_id: Annotated[str | None, Header(alias="X-Trace-Id")] = None,
 ):
     """
     Receive a transaction, enforce API-level idempotency, and publish to Kafka.
@@ -392,11 +393,11 @@ async def receive_transaction(
                     status_code=status.HTTP_201_CREATED,
                     content=json.loads(cached_response),
                 )
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail="Cached idempotency response is corrupted",
-                )
+                ) from exc
 
         if reservation_state == "PROCESSING":
             return JSONResponse(
@@ -455,7 +456,7 @@ async def receive_transaction(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Idempotency layer unavailable: {exc}",
-        )
+        ) from exc
 
     except Exception as exc:
         await mark_idempotency_failed(
@@ -467,4 +468,4 @@ async def receive_transaction(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(exc),
-        )
+        ) from exc
