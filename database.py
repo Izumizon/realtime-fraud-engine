@@ -1,5 +1,6 @@
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import declarative_base
+
 from config import settings
 
 # 1. Build the Asynchronous Engine
@@ -7,7 +8,7 @@ from config import settings
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=False,  # Set to True so it prints the raw SQL it writes to your terminal!
-    future=True
+    future=True,
 )
 
 # 2. Create the Session Factory
@@ -23,6 +24,7 @@ AsyncSessionLocal = async_sessionmaker(
 # 3. Initialize the Declarative Base
 # All of our database table blueprints will inherit from this base class
 Base = declarative_base()
+
 
 # 4. FastAPI Dependency function
 # We will use this later to safely open and close connections during web requests

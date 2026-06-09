@@ -1,7 +1,6 @@
 import hashlib
 import json
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from aiokafka import AIOKafkaProducer
@@ -14,17 +13,16 @@ from redis.exceptions import RedisError
 from config import settings
 from redis_fraud_evaluator import RedisSettings, create_redis_client
 
-
 app = FastAPI(title=settings.PROJECT_NAME, version="1.0.0")
 
-producer: Optional[AIOKafkaProducer] = None
-redis_client: Optional[Redis] = None
+producer: AIOKafkaProducer | None = None
+redis_client: Redis | None = None
 
 IDEMPOTENCY_TTL_SECONDS = 60 * 60 * 24  # 24 hours
 
-reserve_idempotency_sha: Optional[str] = None
-complete_idempotency_sha: Optional[str] = None
-fail_idempotency_sha: Optional[str] = None
+reserve_idempotency_sha: str | None = None
+complete_idempotency_sha: str | None = None
+fail_idempotency_sha: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +152,7 @@ return {"FAILED", ""}
 # Pydantic models
 # ---------------------------------------------------------------------------
 
+
 class BehavioralMetadata(BaseModel):
     time_to_complete_ms: int = Field(ge=0)
     is_new_payee: bool
@@ -178,8 +177,9 @@ class Transaction(BaseModel):
 # Helper functions
 # ---------------------------------------------------------------------------
 
+
 def now_utc_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def build_request_hash(payload: dict) -> str:
@@ -298,6 +298,7 @@ async def mark_idempotency_failed(
 # FastAPI lifecycle
 # ---------------------------------------------------------------------------
 
+
 @app.on_event("startup")
 async def startup_event() -> None:
     global producer
@@ -315,15 +316,9 @@ async def startup_event() -> None:
         )
     )
 
-    reserve_idempotency_sha = await redis_client.script_load(
-        RESERVE_IDEMPOTENCY_LUA
-    )
-    complete_idempotency_sha = await redis_client.script_load(
-        COMPLETE_IDEMPOTENCY_LUA
-    )
-    fail_idempotency_sha = await redis_client.script_load(
-        FAIL_IDEMPOTENCY_LUA
-    )
+    reserve_idempotency_sha = await redis_client.script_load(RESERVE_IDEMPOTENCY_LUA)
+    complete_idempotency_sha = await redis_client.script_load(COMPLETE_IDEMPOTENCY_LUA)
+    fail_idempotency_sha = await redis_client.script_load(FAIL_IDEMPOTENCY_LUA)
 
     print("✅ Redis Idempotency Layer Online.")
 
@@ -352,6 +347,7 @@ async def shutdown_event() -> None:
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+
 
 @app.get("/health")
 async def health_check():

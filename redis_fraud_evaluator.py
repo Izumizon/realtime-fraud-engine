@@ -22,14 +22,11 @@ Design goals:
 from __future__ import annotations
 
 import time
-from typing import List, Optional
 from uuid import UUID
 
-import redis.asyncio as redis
 from pydantic import BaseModel, Field
 from redis.asyncio import ConnectionPool, Redis
 from redis.exceptions import NoScriptError
-
 
 # ---------------------------------------------------------------------------
 # Lua script: atomic sliding-window counter using a Redis Sorted Set.
@@ -120,7 +117,7 @@ class RedisSettings(BaseModel):
 
     health_check_interval_seconds: int = Field(default=30, ge=0)
 
-    
+
 class FraudRuleConfig(BaseModel):
     """
     Dynamic fraud threshold configuration.
@@ -179,13 +176,14 @@ class FraudRiskResult(BaseModel):
     sender_velocity_penalty_applied: int = Field(ge=0, le=100)
     receiver_swarm_penalty_applied: int = Field(ge=0, le=100)
 
-    reasons: List[str]
+    reasons: list[str]
     redis_eval_time_ms: float = Field(ge=0)
 
 
 # ---------------------------------------------------------------------------
 # Redis connection factory
 # ---------------------------------------------------------------------------
+
 
 def create_redis_client(settings: RedisSettings) -> Redis:
     """
@@ -211,6 +209,7 @@ def create_redis_client(settings: RedisSettings) -> Redis:
 # Redis fraud evaluator
 # ---------------------------------------------------------------------------
 
+
 class RedisFraudEvaluator:
     """
     Async Redis-backed fraud scoring layer.
@@ -227,11 +226,11 @@ class RedisFraudEvaluator:
     def __init__(
         self,
         redis_client: Redis,
-        config: Optional[FraudRuleConfig] = None,
+        config: FraudRuleConfig | None = None,
     ) -> None:
         self.redis = redis_client
         self.config = config or FraudRuleConfig()
-        self._sliding_window_sha: Optional[str] = None
+        self._sliding_window_sha: str | None = None
 
     async def start(self) -> None:
         """
@@ -240,9 +239,7 @@ class RedisFraudEvaluator:
         Call this once during application startup.
         """
 
-        self._sliding_window_sha = await self.redis.script_load(
-            SLIDING_WINDOW_ZSET_LUA
-        )
+        self._sliding_window_sha = await self.redis.script_load(SLIDING_WINDOW_ZSET_LUA)
 
     async def close(self) -> None:
         """
@@ -315,7 +312,7 @@ class RedisFraudEvaluator:
                 ttl_seconds=ttl_seconds,
             )
 
-        reasons: List[str] = []
+        reasons: list[str] = []
 
         sender_penalty = 0
         if sender_count > self.config.sender_velocity_threshold:
@@ -404,6 +401,7 @@ class RedisFraudEvaluator:
 # ---------------------------------------------------------------------------
 # Example usage inside an async Kafka consumer or FastAPI route
 # ---------------------------------------------------------------------------
+
 
 async def example_usage() -> None:
     redis_settings = RedisSettings(

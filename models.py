@@ -1,5 +1,7 @@
-from sqlalchemy import Column, String, DateTime, Integer
 from datetime import datetime
+
+from sqlalchemy import Column, DateTime, Integer, String
+
 from database import Base
 
 
@@ -8,6 +10,7 @@ class TransactionRecord(Base):
     The Immutable Ledger Table.
     Every transaction evaluated by the fraud engine is permanently recorded here.
     """
+
     __tablename__ = "transactions"
 
     transaction_id = Column(String, primary_key=True, index=True)

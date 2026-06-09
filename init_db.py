@@ -2,8 +2,7 @@ import asyncio
 
 from sqlalchemy.exc import OperationalError
 
-from database import engine, Base
-import models  # Required so SQLAlchemy registers the TransactionRecord table
+from database import Base, engine
 
 
 async def create_database_tables() -> None:

@@ -19,7 +19,6 @@ from redis_fraud_evaluator import (
     create_redis_client,
 )
 
-
 # ---------------------------------------------------------------------------
 # Structured logging setup
 # ---------------------------------------------------------------------------
@@ -62,6 +61,7 @@ def emit_log(event: str, level: str = "info", **fields: Any) -> None:
 # ---------------------------------------------------------------------------
 # Risk scoring
 # ---------------------------------------------------------------------------
+
 
 def calculate_static_risk_score(tx_data: dict[str, Any]) -> tuple[int, list[str]]:
     """
@@ -118,6 +118,7 @@ def route_transaction(risk_score: int) -> str:
 # Persistence
 # ---------------------------------------------------------------------------
 
+
 async def save_transaction_to_ledger(
     tx_data: dict[str, Any],
     final_status: str,
@@ -153,6 +154,7 @@ async def save_transaction_to_ledger(
 # ---------------------------------------------------------------------------
 # Transaction processing
 # ---------------------------------------------------------------------------
+
 
 async def process_transaction(
     tx_data: dict[str, Any],
@@ -266,6 +268,7 @@ async def process_transaction(
 # ---------------------------------------------------------------------------
 # Kafka consumer loop
 # ---------------------------------------------------------------------------
+
 
 async def consume_events() -> None:
     """

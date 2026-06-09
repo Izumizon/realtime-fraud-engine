@@ -2,7 +2,9 @@ import asyncio
 import json
 import random
 import uuid
+
 from aiokafka import AIOKafkaProducer
+
 from config import settings
 
 MERCHANTS = ["m-9921", "m-4432", "m-1102", "m-5599"]
@@ -50,7 +52,9 @@ async def simulate_transactions():
                         if is_scam_panic
                         else random.randint(15000, 60000)
                     ),
-                    "is_new_payee": True if is_scam_panic else random.choice([True, False]),
+                    "is_new_payee": True
+                    if is_scam_panic
+                    else random.choice([True, False]),
                     "password_reset_24h": True if is_scam_panic else False,
                 },
             }
@@ -75,4 +79,4 @@ async def simulate_transactions():
 
 
 if __name__ == "__main__":
-    asyncio.run(simulate_transactions())    
+    asyncio.run(simulate_transactions())
