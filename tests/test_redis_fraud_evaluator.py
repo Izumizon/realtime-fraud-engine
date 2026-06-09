@@ -23,7 +23,7 @@ async def test_sender_velocity_triggers_after_threshold():
 
     redis_client = create_redis_client(
         RedisSettings(
-            url="redis://localhost:6379/0",
+             url="redis://127.0.0.1:6379/0",
             socket_timeout_seconds=1.0,
             socket_connect_timeout_seconds=2.0,
         )
@@ -81,7 +81,7 @@ async def test_receiver_swarm_triggers_after_unique_sender_threshold():
 
     redis_client = create_redis_client(
         RedisSettings(
-            url="redis://localhost:6379/0",
+             url="redis://127.0.0.1:6379/0",
             socket_timeout_seconds=1.0,
             socket_connect_timeout_seconds=2.0,
         )
@@ -147,7 +147,7 @@ async def test_duplicate_transaction_id_does_not_inflate_sender_velocity():
 
     redis_client = create_redis_client(
         RedisSettings(
-            url="redis://localhost:6379/0",
+             url="redis://127.0.0.1:6379/0",
             socket_timeout_seconds=1.0,
             socket_connect_timeout_seconds=2.0,
         )
@@ -206,7 +206,7 @@ async def test_redis_penalty_is_added_to_existing_base_risk_score():
 
     redis_client = create_redis_client(
         RedisSettings(
-            url="redis://localhost:6379/0",
+             url="redis://127.0.0.1:6379/0",
             socket_timeout_seconds=1.0,
             socket_connect_timeout_seconds=2.0,
         )
