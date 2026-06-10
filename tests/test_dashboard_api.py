@@ -3,8 +3,23 @@ from types import SimpleNamespace
 from typing import Any
 
 from fastapi.testclient import TestClient
+from pytest import MonkeyPatch
 
 import dashboard
+
+
+class FakeMappings:
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self.rows = rows
+
+    def __iter__(self):
+        return iter(self.rows)
+
+    def one_or_none(self) -> dict[str, Any] | None:
+        if not self.rows:
+            return None
+
+        return self.rows[0]
 
 
 class FakeResult:
@@ -19,8 +34,8 @@ class FakeResult:
         self._one = one
         self._rows = rows or []
 
-    def mappings(self) -> list[dict[str, Any]]:
-        return self._mappings
+    def mappings(self) -> FakeMappings:
+        return FakeMappings(self._mappings)
 
     def one(self) -> Any:
         return self._one
@@ -153,3 +168,64 @@ def test_dashboard_stats_invalid_window_defaults_to_one_hour(monkeypatch) -> Non
 
     assert data["window"] == "1h"
     assert data["window_label"] == "Last 1 hour"
+
+
+def test_transaction_detail_page_loads() -> None:
+    with TestClient(dashboard.app) as client:
+        response = client.get("/transactions/trace-1")
+
+    assert response.status_code == 200
+    assert "Transaction Detail" in response.text
+    assert "trace-1" in response.text
+
+
+def test_transaction_detail_api_returns_transaction(monkeypatch: MonkeyPatch) -> None:
+    def fake_session_factory() -> FakeSession:
+        return FakeSession(
+            [
+                FakeResult(
+                    mappings=[
+                        {
+                            "transaction_id": "tx-1",
+                            "trace_id": "trace-1",
+                            "user_id": "user-1",
+                            "merchant_id": "merchant-1",
+                            "amount": 1050,
+                            "currency": "GBP",
+                            "status": "APPROVED",
+                            "risk_score": 20,
+                            "risk_reasons": ["new_payee"],
+                            "redis_eval_ms": 0.5,
+                            "sender_velocity_count": 1,
+                            "receiver_unique_sender_count": 2,
+                            "received_at": datetime(2026, 6, 10, 12, 0, 0),
+                        }
+                    ]
+                )
+            ]
+        )
+
+    monkeypatch.setattr(dashboard, "AsyncSessionLocal", fake_session_factory)
+
+    with TestClient(dashboard.app) as client:
+        response = client.get("/api/transactions/trace-1")
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert data["trace_id"] == "trace-1"
+    assert data["transaction_id"] == "tx-1"
+    assert data["risk_reasons"] == ["new_payee"]
+
+
+def test_transaction_detail_api_returns_404(monkeypatch: MonkeyPatch) -> None:
+    def fake_session_factory() -> FakeSession:
+        return FakeSession([FakeResult(mappings=[])])
+
+    monkeypatch.setattr(dashboard, "AsyncSessionLocal", fake_session_factory)
+
+    with TestClient(dashboard.app) as client:
+        response = client.get("/api/transactions/missing-trace")
+
+    assert response.status_code == 404

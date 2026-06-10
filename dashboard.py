@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import text
 
@@ -11,17 +11,17 @@ from database import AsyncSessionLocal
 app = FastAPI(title="Fraud Operations Dashboard", version="1.0.0")
 
 WINDOW_SECONDS: dict[str, int | None] = {
-"5m": 5 * 60,
-"1h": 60 * 60,
-"24h": 24 * 60 * 60,
-"all": None,
+    "5m": 5 * 60,
+    "1h": 60 * 60,
+    "24h": 24 * 60 * 60,
+    "all": None,
 }
 
 WINDOW_LABELS: dict[str, str] = {
-"5m": "Last 5 minutes",
-"1h": "Last 1 hour",
-"24h": "Last 24 hours",
-"all": "All time",
+    "5m": "Last 5 minutes",
+    "1h": "Last 1 hour",
+    "24h": "Last 24 hours",
+    "all": "All time",
 }
 
 
@@ -46,12 +46,40 @@ def build_time_filter(window: str) -> tuple[str, dict[str, Any], str]:
         selected_window,
     )
 
+
 def percentage(part: int, total: int) -> float:
     if total == 0:
         return 0.0
 
     return round((part / total) * 100, 1)
 
+def transaction_mapping_to_payload(row: Any) -> dict[str, Any]:
+    risk_reasons = row["risk_reasons"]
+
+    if isinstance(risk_reasons, str):
+        risk_reasons = json.loads(risk_reasons)
+
+    received_at = row["received_at"]
+
+    return {
+        "transaction_id": row["transaction_id"],
+        "trace_id": row["trace_id"],
+        "user_id": row["user_id"],
+        "merchant_id": row["merchant_id"],
+        "amount": row["amount"],
+        "currency": row["currency"],
+        "status": row["status"],
+        "risk_score": row["risk_score"],
+        "risk_reasons": risk_reasons or [],
+        "redis_eval_ms": row["redis_eval_ms"],
+        "sender_velocity_count": row["sender_velocity_count"],
+        "receiver_unique_sender_count": row["receiver_unique_sender_count"],
+        "received_at": (
+            received_at.isoformat()
+            if isinstance(received_at, datetime)
+            else str(received_at)
+        ),
+    }
 
 DASHBOARD_HTML = """
 
@@ -148,6 +176,15 @@ DASHBOARD_HTML = """
     button.window-button.active {
         background: #2563eb;
         color: white;
+    }
+    .trace-link {
+    color: #93c5fd;
+    font-weight: 700;
+    text-decoration: none;
+    }
+
+    .trace-link:hover {
+    text-decoration: underline;
     }
 
     .kpis {
@@ -676,7 +713,11 @@ DASHBOARD_HTML = """
             feed.innerHTML = data.latest_transactions.map((tx) => `
                 <tr>
                     <td>${formatTime(tx.received_at)}</td>
-                    <td class="mono" title="${tx.trace_id}">${truncate(tx.trace_id)}</td>
+                    <td class="mono" title="${tx.trace_id}">
+                        <a class="trace-link" href="/transactions/${tx.trace_id}">
+                            ${truncate(tx.trace_id)}
+                        </a>
+                    </td>
                     <td>${tx.user_id}</td>
                     <td>${tx.merchant_id}</td>
                     <td class="amount">${formatAmount(tx.amount, tx.currency)}</td>
@@ -717,15 +758,275 @@ DASHBOARD_HTML = """
 </body>
 </html>
 """
+TRANSACTION_DETAIL_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Transaction Detail</title>
+    <style>
+        :root {
+            --bg: #0f0f10;
+            --panel: #17181b;
+            --panel-soft: #1f2025;
+            --text: #f5f5f5;
+            --muted: #a7a7a7;
+            --border: #303136;
+            --green: #22c55e;
+            --yellow: #eab308;
+            --red: #ef4444;
+            --blue: #60a5fa;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Inter, Segoe UI, Arial, sans-serif;
+        }
+
+        .page {
+            padding: 32px 40px;
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        a {
+            color: var(--blue);
+            text-decoration: none;
+            font-weight: 700;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        h1 {
+            margin: 18px 0 8px;
+            font-size: 30px;
+            letter-spacing: -0.04em;
+        }
+
+        .subtitle {
+            color: var(--muted);
+            margin-bottom: 24px;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 16px;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 18px;
+        }
+
+        .label {
+            color: var(--muted);
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+
+        .value {
+            font-size: 18px;
+            font-weight: 750;
+            word-break: break-word;
+        }
+
+        .status {
+            display: inline-flex;
+            padding: 7px 12px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: 800;
+        }
+
+        .status-approved {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--green);
+        }
+
+        .status-review {
+            background: rgba(234, 179, 8, 0.18);
+            color: var(--yellow);
+        }
+
+        .status-declined {
+            background: rgba(239, 68, 68, 0.16);
+            color: var(--red);
+        }
+
+        .pill {
+            display: inline-flex;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: 750;
+            margin: 3px 5px 3px 0;
+            background: var(--panel-soft);
+            color: var(--text);
+        }
+
+        .wide {
+            grid-column: 1 / -1;
+        }
+
+        .error {
+            color: var(--red);
+        }
+
+        @media (max-width: 800px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <a href="/">← Back to dashboard</a>
+
+        <h1>Transaction Detail</h1>
+        <div class="subtitle">
+            Full fraud decision and trace data for this transaction.
+        </div>
+
+        <section class="grid" id="detail">
+            <div class="card wide">Loading transaction...</div>
+        </section>
+    </div>
+
+    <script>
+        const traceId = __TRACE_ID_JSON__;
+
+        function statusClass(status) {
+            if (status === "APPROVED") return "status status-approved";
+            if (status === "STEP-UP_REVIEW") return "status status-review";
+            if (status === "DECLINED") return "status status-declined";
+            return "status";
+        }
+
+        function formatAmount(amount, currency) {
+            return `${currency} ${(amount / 100).toFixed(2)}`;
+        }
+
+        function card(label, value) {
+            return `
+                <div class="card">
+                    <div class="label">${label}</div>
+                    <div class="value">${value}</div>
+                </div>
+            `;
+        }
+
+        function renderReasons(reasons) {
+            if (!reasons || reasons.length === 0) {
+                return '<span class="pill">No flags</span>';
+            }
+
+            return reasons.map((reason) => `<span class="pill">${reason}</span>`).join("");
+        }
+
+        async function loadTransaction() {
+            const detail = document.getElementById("detail");
+
+            const response = await fetch(`/api/transactions/${traceId}`);
+
+            if (!response.ok) {
+                detail.innerHTML = `
+                    <div class="card wide error">
+                        Transaction not found for trace ID: ${traceId}
+                    </div>
+                `;
+                return;
+            }
+
+            const tx = await response.json();
+
+            detail.innerHTML = `
+                ${card("Status", `<span class="${statusClass(tx.status)}">${tx.status}</span>`)}
+                ${card("Risk Score", tx.risk_score)}
+                ${card("Amount", formatAmount(tx.amount, tx.currency))}
+                ${card("Received At", tx.received_at)}
+                ${card("Trace ID", tx.trace_id)}
+                ${card("Transaction ID", tx.transaction_id)}
+                ${card("User ID", tx.user_id)}
+                ${card("Merchant ID", tx.merchant_id)}
+                ${card("Redis Eval Time", `${tx.redis_eval_ms} ms`)}
+                ${card("Sender Velocity Count", tx.sender_velocity_count)}
+                ${card("Receiver Unique Sender Count", tx.receiver_unique_sender_count)}
+                <div class="card wide">
+                    <div class="label">Fraud Reasons</div>
+                    <div class="value">${renderReasons(tx.risk_reasons)}</div>
+                </div>
+            `;
+        }
+
+        loadTransaction();
+    </script>
+</body>
+</html>
+"""
+
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard_home() -> HTMLResponse:
     return HTMLResponse(DASHBOARD_HTML)
 
+@app.get("/transactions/{trace_id}", response_class=HTMLResponse)
+async def transaction_detail_page(trace_id: str) -> HTMLResponse:
+    html = TRANSACTION_DETAIL_HTML.replace("__TRACE_ID_JSON__", json.dumps(trace_id))
+    return HTMLResponse(html)
+
+
+@app.get("/api/transactions/{trace_id}")
+async def transaction_detail_api(trace_id: str) -> JSONResponse:
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            text(
+                """
+                SELECT
+                    transaction_id,
+                    trace_id,
+                    user_id,
+                    merchant_id,
+                    amount,
+                    currency,
+                    status,
+                    risk_score,
+                    risk_reasons,
+                    redis_eval_ms,
+                    sender_velocity_count,
+                    receiver_unique_sender_count,
+                    received_at
+                FROM transactions
+                WHERE trace_id = :trace_id
+                LIMIT 1
+                """
+            ),
+            {"trace_id": trace_id},
+        )
+
+        row = result.mappings().one_or_none()
+
+        if row is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Transaction not found",
+            )
+
+        return JSONResponse(transaction_mapping_to_payload(row))
 @app.get("/api/stats")
 async def dashboard_stats(window: str = "1h") -> JSONResponse:
     time_filter, query_params, selected_window = build_time_filter(window)
-
 
     async with AsyncSessionLocal() as session:
         status_result = await session.execute(
@@ -741,8 +1042,7 @@ async def dashboard_stats(window: str = "1h") -> JSONResponse:
         )
 
     status_counts = {
-        str(row["status"]): int(row["row_count"])
-        for row in status_result.mappings()
+        str(row["status"]): int(row["row_count"]) for row in status_result.mappings()
     }
 
     summary_result = await session.execute(
@@ -789,8 +1089,7 @@ async def dashboard_stats(window: str = "1h") -> JSONResponse:
     )
 
     risk_counts = {
-        str(row["risk_band"]): int(row["row_count"])
-        for row in risk_result.mappings()
+        str(row["risk_band"]): int(row["row_count"]) for row in risk_result.mappings()
     }
 
     vectors_result = await session.execute(
@@ -908,6 +1207,49 @@ async def dashboard_stats(window: str = "1h") -> JSONResponse:
         ],
         "latest_transactions": latest_transactions,
     }
-
     return JSONResponse(payload)
 
+    @app.get("/transactions/{trace_id}", response_class=HTMLResponse)
+    async def transaction_detail_page(trace_id: str) -> HTMLResponse:
+        html = TRANSACTION_DETAIL_HTML.replace(
+            "__TRACE_ID_JSON__", json.dumps(trace_id)
+        )
+        return HTMLResponse(html)
+
+    @app.get("/api/transactions/{trace_id}")
+    async def transaction_detail_api(trace_id: str) -> JSONResponse:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                text(
+                    """
+                    SELECT
+                        transaction_id,
+                        trace_id,
+                        user_id,
+                        merchant_id,
+                        amount,
+                        currency,
+                        status,
+                        risk_score,
+                        risk_reasons,
+                        redis_eval_ms,
+                        sender_velocity_count,
+                        receiver_unique_sender_count,
+                        received_at
+                    FROM transactions
+                    WHERE trace_id = :trace_id
+                    LIMIT 1
+                    """
+                ),
+                {"trace_id": trace_id},
+            )
+
+            row = result.mappings().one_or_none()
+
+            if row is None:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Transaction not found",
+                )
+
+            return JSONResponse(transaction_mapping_to_payload(row))
