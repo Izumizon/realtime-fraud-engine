@@ -53,6 +53,7 @@ def percentage(part: int, total: int) -> float:
 
     return round((part / total) * 100, 1)
 
+
 def transaction_mapping_to_payload(row: Any) -> dict[str, Any]:
     risk_reasons = row["risk_reasons"]
 
@@ -80,6 +81,7 @@ def transaction_mapping_to_payload(row: Any) -> dict[str, Any]:
             else str(received_at)
         ),
     }
+
 
 DASHBOARD_HTML = """
 
@@ -981,6 +983,7 @@ TRANSACTION_DETAIL_HTML = """
 async def dashboard_home() -> HTMLResponse:
     return HTMLResponse(DASHBOARD_HTML)
 
+
 @app.get("/transactions/{trace_id}", response_class=HTMLResponse)
 async def transaction_detail_page(trace_id: str) -> HTMLResponse:
     html = TRANSACTION_DETAIL_HTML.replace("__TRACE_ID_JSON__", json.dumps(trace_id))
@@ -1024,6 +1027,8 @@ async def transaction_detail_api(trace_id: str) -> JSONResponse:
             )
 
         return JSONResponse(transaction_mapping_to_payload(row))
+
+
 @app.get("/api/stats")
 async def dashboard_stats(window: str = "1h") -> JSONResponse:
     time_filter, query_params, selected_window = build_time_filter(window)
