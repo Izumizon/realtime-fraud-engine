@@ -7,7 +7,6 @@
 ![Redis](https://img.shields.io/badge/Redis-hot--state-red.svg)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-ledger-blue.svg)
 ![Tests](https://img.shields.io/badge/tests-24%20passing-brightgreen.svg)
-![Live Fraud Operations Dashboard](docs/assets/dashboard-demo.png)
 ![Python Tests](https://github.com/Izumizon/realtime-fraud-engine/actions/workflows/tests.yml/badge.svg)
 
 
@@ -121,15 +120,21 @@ The dashboard updates automatically as the traffic simulator generates transacti
 
 The project includes a browser-based fraud operations dashboard that reads from the PostgreSQL ledger.
 
+![Live Fraud Operations Dashboard](docs/assets/dashboard-demo.png)
+
 The dashboard displays:
 
-* Total processed transaction volume
+* Window-based transaction volume
+* All-time transaction volume
 * Approved, step-up review, and declined counts
 * Average fraud risk score
+* Decision split visualisation
+* Low, medium, and high risk breakdown
 * Latest transaction decisions
 * Color-coded decision statuses
 * Color-coded fraud reason badges
 * Top triggered fraud vectors
+* Transaction detail pages by `trace_id`
 
 Status colors:
 
@@ -149,6 +154,10 @@ Fraud reason badges:
 | Blue    | New payee risk signal                   |
 
 This makes the system easier to demo than raw console logs and shows how analysts could monitor fraud patterns in real time.
+
+
+Analysts can click any Trace ID in the live feed to open a transaction detail page showing the full fraud decision, risk score, fraud reasons, Redis evaluation metrics, sender velocity count, receiver swarm count, and transaction metadata.
+
 
 ---
 
@@ -570,7 +579,7 @@ python -m pytest
 Current status:
 
 ```text
-18 passed
+24 passed
 ```
 
 ## Run Ruff
@@ -595,6 +604,10 @@ python -m mypy .
 * API idempotency behaviour
 * Missing idempotency header rejection
 * Conflicting payload rejection
+* Dashboard stats API
+* Dashboard time-window filtering
+* Transaction detail API
+* Invalid dashboard window fallback
 
 ## CI/CD
 
@@ -650,6 +663,14 @@ docker compose logs -f fraud_engine
 docker compose logs -f fraud_dashboard
 ```
 
+## Open a transaction detail page
+
+Click any Trace ID in the dashboard, or open:
+
+```bash
+http://localhost:8080/transactions/<trace_id>
+
+
 ## Run tests locally
 
 ```bash
@@ -678,8 +699,16 @@ python -m pytest
 * GitHub Actions CI
 * Ruff linting
 * mypy type checking
-* Pytest suite with 18 passing tests
+* Pytest suite with 24 passing tests
 * Mermaid architecture diagram
+* Dashboard time-window selector
+* Dashboard decision split visualisation
+* Dashboard risk breakdown visualisation
+* Transaction detail page by `trace_id`
+* Dashboard API tests
+* FastAPI lifespan startup/shutdown handling
+* CI status badge
+* Demo screenshot in README
 
 ---
 
@@ -687,15 +716,14 @@ python -m pytest
 
 Planned future improvements:
 
-* Dashboard time-window selector
+* Architecture Decision Records in `docs/adr`
+* Project demo guide in `docs/demo.md`
 * Prometheus metrics endpoint
 * Grafana dashboard
 * More integration tests
 * Dead-letter queue for malformed Kafka messages
-* Improved FastAPI lifespan handling
-* CI status badge in README
-* Demo screenshot or GIF
-* Optional transaction detail page by `trace_id`
+* Optional load testing with Locust
+* Optional GitHub release/tag
 
 ---
 
