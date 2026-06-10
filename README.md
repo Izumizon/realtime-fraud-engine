@@ -10,22 +10,24 @@
 
 A production-inspired real-time fraud detection and payment authorization engine built with **FastAPI**, **Kafka**, **Redis**, **PostgreSQL**, and **Docker Compose**.
 
-The project simulates how a fintech backend might process financial transactions, apply fraud intelligence, and persist decisions into an immutable ledger.
+The project simulates how a fintech backend might receive transactions, apply fraud intelligence, persist decisions into an immutable ledger, and expose a live fraud operations dashboard for analysts.
 
 It focuses on:
 
 * Sub-500ms hot-path design principles
-* Effectively-once processing semantics
+* Event-driven transaction processing
 * Redis-backed idempotency protection
-* Event-driven transaction processing with Kafka
-* Receiver-centric fraud detection for mule swarm behaviour
-* APP scam panic scoring
-* Structured JSON observability logs
+* Redis Lua sliding-window fraud intelligence
+* APP scam panic detection
+* Receiver-centric mule swarm detection
 * PostgreSQL ledger persistence
+* Structured JSON observability logs
 * Dockerised local execution
+* Automated testing, linting, and type checking
 
 ---
-##  System Architecture
+
+## 🧭 System Architecture
 
 ```mermaid
 flowchart LR
@@ -40,13 +42,18 @@ flowchart LR
     Consumer -->|sender velocity + receiver swarm| Redis
     Consumer -->|final decision| Postgres[(PostgreSQL Ledger)]
 
+    Postgres -->|read-only analytics| Dashboard[Fraud Operations Dashboard]
+
     Consumer -->|structured JSON logs| Logs[Observability Logs]
 
     Redis -.->|idem:{id}| Idem[API Idempotency]
     Redis -.->|vel:user:{user_id}| SenderVelocity[Sender Velocity]
     Redis -.->|vel:merch:{merchant_id}| ReceiverSwarm[Receiver Swarm]
 ```
-##  Quick Start
+
+---
+
+## 🚀 Quick Start
 
 The full system runs locally through Docker Compose.
 
@@ -73,8 +80,13 @@ This starts:
 * FastAPI API Gateway
 * Fraud Engine Kafka Consumer
 * Traffic Simulator
+* Fraud Operations Dashboard
 
-### Verify API Health
+---
+
+## ✅ Verify the System
+
+### API Health Check
 
 In a second terminal:
 
@@ -90,15 +102,62 @@ Expected response:
 }
 ```
 
-### View Fraud Engine Logs
+### Open the Fraud Dashboard
 
-To view only the fraud engine logs:
+Once the system is running, open:
+
+```bash
+http://localhost:8080
+```
+
+The dashboard updates automatically as the traffic simulator generates transactions.
+
+---
+
+## 🖥️ Live Fraud Operations Dashboard
+
+The project includes a browser-based fraud operations dashboard that reads from the PostgreSQL ledger.
+
+The dashboard displays:
+
+* Total processed transaction volume
+* Approved, step-up review, and declined counts
+* Average fraud risk score
+* Latest transaction decisions
+* Color-coded decision statuses
+* Color-coded fraud reason badges
+* Top triggered fraud vectors
+
+Status colors:
+
+| Status | Meaning                 |
+| ------ | ----------------------- |
+| Green  | Approved transaction    |
+| Yellow | Step-up review required |
+| Red    | Declined transaction    |
+
+Fraud reason badges:
+
+| Badge   | Meaning                                 |
+| ------- | --------------------------------------- |
+| Purple  | Receiver swarm / mule-network behaviour |
+| Orange  | Sender velocity / bot-like behaviour    |
+| Crimson | APP scam panic behaviour                |
+| Blue    | New payee risk signal                   |
+
+This makes the system easier to demo than raw console logs and shows how analysts could monitor fraud patterns in real time.
+
+---
+
+## 📡 Example Fraud Engine Log
+
+To view the fraud engine logs:
 
 ```bash
 docker compose logs -f fraud_engine
 ```
 
-You should see structured JSON decision logs like:
+Example structured decision log:
 
 ```json
 {
@@ -121,85 +180,19 @@ You should see structured JSON decision logs like:
 
 ---
 
-##  Current Features
-
-### Core Infrastructure
-
-* Docker Compose environment
-* PostgreSQL transaction ledger
-* Redis hot-state cache
-* Kafka event broker
-* FastAPI API Gateway
-* Async Kafka consumer
-* Traffic simulator service
-
-### Fraud Detection
-
-* 0–100 dynamic risk scoring
-* APP scam panic detection
-* New payee risk scoring
-* Recent password reset risk scoring
-* Fast transaction completion risk scoring
-* Sender velocity detection
-* Receiver swarm detection for mule-network behaviour
-
-### Reliability & Correctness
-
-* Redis-backed API idempotency state machine
-* Duplicate request protection through `Idempotency-Key`
-* Conflicting duplicate payload rejection
-* PostgreSQL primary-key protection against duplicate ledger writes
-* Manual Kafka offset commits after successful processing
-* Replay-safe consumer behaviour
-
-### Observability
-
-* End-to-end `trace_id` propagation
-* Structured JSON transaction decision logs
-* Redis evaluation latency logging
-* Kafka offset commit logging
-* Fraud reason logging
-
-### Testing
-
-Current test suite:
-
-```bash
-python -m pytest
-```
-
-Current status:
-
-```text
-18 passed
-```
-
-Test coverage includes:
-
-* Static fraud scoring
-* Risk routing boundaries
-* Redis sender velocity detection
-* Redis receiver swarm detection
-* Duplicate transaction handling
-* API idempotency behaviour
-* Missing idempotency header rejection
-* Conflicting idempotency payload rejection
-
----
-
 # Architecture & Engineering RFC
 
-## 1. System Overview & Philosophy
+## 1. System Overview
 
-This project simulates a production-grade fintech payment authorization system inspired by modern card payment processors.
+This project simulates a production-grade fintech payment authorization system inspired by modern card payment processors and challenger banks.
 
-The architecture minimises known distributed failure modes under defined constraints, prioritising:
+The architecture prioritises:
 
-* Strict P99 latency target for the hot path
-* Effectively-once processing semantics under bounded assumptions
-* Risk-tiered degradation under partial system failure
-* Clear separation between decisioning and analytics
-* High observability and auditability for financial workflows
+* Strict latency awareness for the authorization path
+* Bounded effectively-once processing semantics
+* Risk-tiered fraud decisions
+* Clear separation between API ingestion, fraud decisioning, persistence, and dashboard analytics
+* High observability for audit and debugging workflows
 
 ---
 
@@ -207,7 +200,7 @@ The architecture minimises known distributed failure modes under defined constra
 
 During uncertainty or degraded system state, the engine prioritises preventing financial loss over minimising false positives.
 
-The system accepts temporary customer friction when risk signals are high or infrastructure health is degraded.
+The system accepts temporary customer friction when fraud risk is high or infrastructure signals are degraded.
 
 ---
 
@@ -215,27 +208,27 @@ The system accepts temporary customer friction when risk signals are high or inf
 
 ### PostgreSQL Ledger
 
-Strong consistency through ACID transactions.
+PostgreSQL acts as the durable source of truth for evaluated transactions.
 
-PostgreSQL acts as the durable system of record for evaluated transactions.
+It stores the final fraud decision, risk score, trace ID, fraud reasons, Redis metrics, and transaction metadata.
 
 ### Kafka Event Stream
 
-Eventual consistency.
+Kafka acts as the asynchronous transaction transport layer.
 
-Kafka acts as the asynchronous transport layer for transaction events.
+The API Gateway and traffic simulator publish transaction events to Kafka. The fraud engine consumes from Kafka and commits offsets only after successful processing.
 
 ### Redis Hot State
 
-Atomic per-key operations using Redis Lua scripts.
+Redis stores short-lived fraud and idempotency state.
 
-Redis stores short-lived fraud intelligence state such as idempotency keys, velocity windows, and receiver swarm windows.
+Redis Lua scripts are used for atomic state transitions and sliding-window fraud checks.
 
-### Merchant / Receiver Risk
+### Dashboard
 
-Eventually consistent.
+The dashboard is read-only and does not participate in transaction authorization.
 
-Receiver risk is inferred from short-lived Redis windows and can later be expanded into longer-term merchant risk profiles.
+It queries PostgreSQL to display operational metrics and the latest fraud decisions.
 
 ---
 
@@ -251,13 +244,12 @@ The current implementation does not include:
 * Real bank integrations
 * Production authentication / mTLS
 * Grafana dashboards
-* GitHub Actions CI/CD
 
 These are intentionally out of scope for the current portfolio version.
 
 ---
 
-## 2. System Architecture & Service Ownership
+# 2. Service Ownership
 
 ## `api_gateway` — FastAPI Hot Path
 
@@ -269,7 +261,7 @@ The API Gateway owns:
 * Kafka event publishing
 * Health check endpoint
 
-It does not own long-term fraud analytics or ledger persistence.
+It does not own long-term analytics or ledger persistence.
 
 ### Inbound API Contract
 
@@ -331,23 +323,40 @@ The fraud engine owns:
 * Redis dynamic fraud evaluation
 * Risk score calculation
 * Transaction routing
-* Structured decision logging
+* Structured JSON decision logging
 * PostgreSQL ledger writes
+* Kafka offset commits after successful processing
 
 It does not own HTTP request handling.
 
 ---
 
-## `traffic_simulator` — Chaos & Load Generator
+## `traffic_simulator` — Calibrated Transaction Generator
 
-The traffic simulator owns:
+The traffic simulator owns synthetic transaction generation.
 
-* Normal transaction simulation
-* APP scam panic simulation
-* Randomised user and merchant activity
-* Continuous transaction stream generation
+It produces multiple traffic scenarios:
 
-It treats the system as an external client and writes events into Kafka.
+* Normal customer spending
+* APP scam panic transfers
+* Mule swarm behaviour
+* Bot-like sender velocity behaviour
+
+The simulator is calibrated so normal traffic does not accidentally trigger every fraud rule. Fraud patterns are intentionally injected to make the dashboard meaningful.
+
+---
+
+## `fraud_dashboard` — Read-Only Operations View
+
+The dashboard owns:
+
+* KPI display
+* Latest transaction feed
+* Top triggered fraud vectors
+* Color-coded status badges
+* Color-coded fraud reason badges
+
+It reads from PostgreSQL and does not affect the transaction processing path.
 
 ---
 
@@ -397,6 +406,8 @@ Purpose:
 
 Detects whether one user is attempting too many transactions inside a 10-minute sliding window.
 
+This models bot-like behaviour, repeated payment attempts, or compromised accounts.
+
 ### Receiver Swarm Detection
 
 Redis key:
@@ -409,7 +420,7 @@ Purpose:
 
 Detects whether many unique users are suddenly sending funds to the same merchant or receiver.
 
-This is designed to model mule-network and micro-structuring patterns.
+This models mule-network and micro-structuring behaviour.
 
 ---
 
@@ -461,6 +472,10 @@ The ledger includes:
 * currency
 * status
 * risk_score
+* risk_reasons
+* redis_eval_ms
+* sender_velocity_count
+* receiver_unique_sender_count
 * received_at
 
 `transaction_id` is the primary key.
@@ -471,7 +486,7 @@ Duplicate inserts are ignored using PostgreSQL conflict handling, protecting the
 
 ## 5.2 Redis Hot State
 
-Redis stores ephemeral fraud state.
+Redis stores ephemeral fraud and idempotency state.
 
 Current key patterns:
 
@@ -497,7 +512,7 @@ The API Gateway and traffic simulator publish transaction events into this topic
 
 The fraud engine consumes from this topic using a Kafka consumer group.
 
-Future versions may split approved and declined events into separate topics.
+Future versions may split approved and declined events into separate downstream topics.
 
 ---
 
@@ -530,17 +545,20 @@ recent_password_reset
 panic_execution_speed
 sender_velocity_exceeded
 receiver_swarm_detected
+redis_unavailable_static_only
 ```
 
-Kafka offset commits are also logged after successful processing.
+Kafka offset commits are logged after successful processing.
+
+The dashboard provides a visual layer over the same decision data stored in PostgreSQL.
 
 ---
 
-# 7. Testing
+# 7. Testing and Code Quality
 
-The project includes a pytest suite.
+The project includes automated testing, linting, and type checking.
 
-Run tests:
+## Run Tests
 
 ```bash
 python -m pytest
@@ -552,23 +570,36 @@ Current status:
 18 passed
 ```
 
-Test files:
+## Run Ruff
 
-```text
-tests/test_risk_scoring.py
-tests/test_redis_fraud_evaluator.py
-tests/test_api_idempotency.py
+```bash
+python -m ruff check .
 ```
 
-Coverage includes:
+## Run mypy
+
+```bash
+python -m mypy .
+```
+
+## Test Coverage Includes
 
 * Static risk scoring
-* Routing boundaries
-* Redis fraud intelligence
-* API idempotency
-* Duplicate request handling
-* Missing header rejection
+* Risk routing boundaries
+* Redis sender velocity detection
+* Redis receiver swarm detection
+* Duplicate transaction handling
+* API idempotency behaviour
+* Missing idempotency header rejection
 * Conflicting payload rejection
+
+## CI/CD
+
+GitHub Actions runs:
+
+* Ruff linting
+* mypy type checking
+* pytest test suite
 
 ---
 
@@ -610,6 +641,12 @@ docker compose logs -f
 docker compose logs -f fraud_engine
 ```
 
+## View dashboard logs only
+
+```bash
+docker compose logs -f fraud_dashboard
+```
+
 ## Run tests locally
 
 ```bash
@@ -618,36 +655,48 @@ python -m pytest
 
 ---
 
-# 9. Roadmap
-
-## Completed
+# 9. Completed Features
 
 * FastAPI API Gateway
 * Kafka transaction pipeline
-* PostgreSQL ledger
+* PostgreSQL immutable ledger
 * Redis fraud intelligence
+* Redis Lua sliding-window checks
 * APP scam scoring
+* Sender velocity detection
 * Receiver swarm detection
 * API idempotency
 * Trace ID propagation
 * Structured JSON logs
+* Live fraud operations dashboard
+* Color-coded fraud reason badges
+* Calibrated traffic simulator scenarios
 * Dockerised infrastructure and Python services
+* GitHub Actions CI
+* Ruff linting
+* mypy type checking
 * Pytest suite with 18 passing tests
-
-## Next
-
-* Clean CI/CD pipeline with GitHub Actions
-* Linting with ruff
-* Static type checking with mypy
-* Prometheus metrics endpoint
-* Grafana dashboard
-* Better traffic simulator scenarios
-* Architecture diagrams
-* More integration tests
+* Mermaid architecture diagram
 
 ---
 
-# 10. AI Usage Disclosure
+# 10. Roadmap
+
+Planned future improvements:
+
+* Dashboard time-window selector
+* Prometheus metrics endpoint
+* Grafana dashboard
+* More integration tests
+* Dead-letter queue for malformed Kafka messages
+* Improved FastAPI lifespan handling
+* CI status badge in README
+* Demo screenshot or GIF
+* Optional transaction detail page by `trace_id`
+
+---
+
+# 11. AI Usage Disclosure
 
 AI tools were used during this project as engineering assistants for architecture review, debugging guidance, documentation structure, and production-readiness critique.
 
@@ -657,7 +706,7 @@ The project was not treated as a copy-paste exercise. AI was used similarly to a
 
 ---
 
-# 11. Key Learning Outcomes
+# 12. Key Learning Outcomes
 
 This project strengthened my understanding of:
 
@@ -670,4 +719,8 @@ This project strengthened my understanding of:
 * Async Python service design
 * Docker Compose orchestration
 * Structured observability logs
+* Dashboard-driven operational visibility
+* CI/CD workflows
+* Ruff linting
+* mypy type checking
 * Distributed systems tradeoffs
