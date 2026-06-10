@@ -21,7 +21,9 @@ Design goals:
 
 from __future__ import annotations
 
+import inspect
 import time
+from typing import cast
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -205,6 +207,23 @@ def create_redis_client(settings: RedisSettings) -> Redis:
     return Redis(connection_pool=pool)
 
 
+async def load_redis_script(redis: Redis, script: str) -> str:
+    """
+    Load a Lua script into Redis and return its SHA.
+
+    redis.asyncio works asynchronously at runtime, but the redis-py type hints
+    may describe script_load as returning either str or Awaitable[str].
+    This helper normalises that into a guaranteed str for mypy.
+    """
+
+    result = redis.script_load(script)
+
+    if inspect.isawaitable(result):
+        return cast(str, await result)
+
+    return cast(str, result)
+
+
 # ---------------------------------------------------------------------------
 # Redis fraud evaluator
 # ---------------------------------------------------------------------------
@@ -239,7 +258,10 @@ class RedisFraudEvaluator:
         Call this once during application startup.
         """
 
-        self._sliding_window_sha = await self.redis.script_load(SLIDING_WINDOW_ZSET_LUA)
+        self._sliding_window_sha = await load_redis_script(
+            self.redis,
+            SLIDING_WINDOW_ZSET_LUA,
+        )
 
     async def close(self) -> None:
         """
@@ -282,10 +304,7 @@ class RedisFraudEvaluator:
         sender_key = f"vel:user:{transaction.user_id}"
         receiver_key = f"vel:merch:{transaction.merchant_id}"
 
-        # Sender velocity counts unique transaction attempts.
         sender_member = str(transaction.transaction_id)
-
-        # Receiver swarm counts unique users interacting with the merchant.
         receiver_member = transaction.user_id
 
         try:
@@ -299,8 +318,6 @@ class RedisFraudEvaluator:
                 ttl_seconds=ttl_seconds,
             )
         except NoScriptError:
-            # Redis can evict script cache after SCRIPT FLUSH or failover.
-            # Reload once and retry.
             await self.start()
             sender_count, receiver_unique_count = await self._run_window_checks(
                 sender_key=sender_key,
@@ -366,20 +383,20 @@ class RedisFraudEvaluator:
             self._sliding_window_sha,
             1,
             sender_key,
-            now_ms,
-            window_ms,
+            str(now_ms),
+            str(window_ms),
             sender_member,
-            ttl_seconds,
+            str(ttl_seconds),
         )
 
         pipe.evalsha(
             self._sliding_window_sha,
             1,
             receiver_key,
-            now_ms,
-            window_ms,
+            str(now_ms),
+            str(window_ms),
             receiver_member,
-            ttl_seconds,
+            str(ttl_seconds),
         )
 
         sender_result, receiver_result = await pipe.execute()

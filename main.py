@@ -1,7 +1,9 @@
 import hashlib
+import inspect
 import json
 from datetime import UTC, datetime
-from typing import Annotated
+from collections.abc import Awaitable
+from typing import Annotated, Any, cast
 from uuid import UUID, uuid4
 
 from aiokafka import AIOKafkaProducer
@@ -177,6 +179,18 @@ class Transaction(BaseModel):
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
+async def load_redis_script(redis: Redis, script: str) -> str:
+    """
+    redis.asyncio script_load works asynchronously at runtime, but its type
+    hints can be broader than mypy expects. This helper normalises the result.
+    """
+
+    result = redis.script_load(script)
+
+    if inspect.isawaitable(result):
+        return cast(str, await result)
+
+    return cast(str, result)
 
 
 def now_utc_iso() -> str:
@@ -204,6 +218,27 @@ def idempotency_redis_key(idempotency_key: UUID) -> str:
     return f"idem:{str(idempotency_key)}"
 
 
+async def eval_redis_script(
+    redis: Redis,
+    sha: str,
+    num_keys: int,
+    *keys_and_args: str,
+) -> Any:
+    """
+    Execute a Redis Lua script and normalise redis-py's broad return typing.
+
+    redis.asyncio evalsha works asynchronously at runtime, but the type hints
+    may describe the result as either Awaitable[...] or a direct value.
+    """
+
+    result = redis.evalsha(sha, num_keys, *keys_and_args)
+
+    if inspect.isawaitable(result):
+        return await cast(Awaitable[Any], result)
+
+    return result
+
+
 async def reserve_idempotency_key(
     *,
     key: str,
@@ -222,12 +257,13 @@ async def reserve_idempotency_key(
     if redis_client is None or reserve_idempotency_sha is None:
         raise RuntimeError("Redis idempotency layer is not initialized")
 
-    result = await redis_client.evalsha(
+    result = await eval_redis_script(
+        redis_client,
         reserve_idempotency_sha,
         1,
         key,
         request_hash,
-        IDEMPOTENCY_TTL_SECONDS,
+        str(IDEMPOTENCY_TTL_SECONDS),
         now_utc_iso(),
     )
 
@@ -252,13 +288,14 @@ async def mark_idempotency_completed(
 
     response_json = json.dumps(response_payload, separators=(",", ":"))
 
-    result = await redis_client.evalsha(
+    result = await eval_redis_script(
+        redis_client,
         complete_idempotency_sha,
         1,
         key,
         request_hash,
         response_json,
-        IDEMPOTENCY_TTL_SECONDS,
+        str(IDEMPOTENCY_TTL_SECONDS),
         now_utc_iso(),
     )
 
@@ -284,13 +321,14 @@ async def mark_idempotency_failed(
     if redis_client is None or fail_idempotency_sha is None:
         return
 
-    await redis_client.evalsha(
+    await eval_redis_script(
+        redis_client,
         fail_idempotency_sha,
         1,
         key,
         request_hash,
         error_message[:250],
-        IDEMPOTENCY_TTL_SECONDS,
+        str(IDEMPOTENCY_TTL_SECONDS),
         now_utc_iso(),
     )
 
@@ -317,10 +355,18 @@ async def startup_event() -> None:
         )
     )
 
-    reserve_idempotency_sha = await redis_client.script_load(RESERVE_IDEMPOTENCY_LUA)
-    complete_idempotency_sha = await redis_client.script_load(COMPLETE_IDEMPOTENCY_LUA)
-    fail_idempotency_sha = await redis_client.script_load(FAIL_IDEMPOTENCY_LUA)
-
+    reserve_idempotency_sha = await load_redis_script(
+        redis_client,
+        RESERVE_IDEMPOTENCY_LUA,
+    )
+    complete_idempotency_sha = await load_redis_script(
+        redis_client,
+        COMPLETE_IDEMPOTENCY_LUA,
+    )
+    fail_idempotency_sha = await load_redis_script(
+        redis_client,
+        FAIL_IDEMPOTENCY_LUA,
+    )
     print("✅ Redis Idempotency Layer Online.")
 
     producer = AIOKafkaProducer(

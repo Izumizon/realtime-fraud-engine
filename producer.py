@@ -19,7 +19,7 @@ def pounds_to_minor_units(value: float) -> int:
     return int(round(value * 100))
 
 
-async def simulate_transactions():
+async def simulate_transactions() -> None:
     producer = AIOKafkaProducer(
         bootstrap_servers=settings.KAFKA_BOOTSTRAP_SERVERS,
         value_serializer=lambda v: json.dumps(v).encode("utf-8"),
@@ -37,13 +37,16 @@ async def simulate_transactions():
                 if is_scam_panic
                 else random.uniform(5.0, 150.0)
             )
+            amount_minor_units = pounds_to_minor_units(amount_major)
+
+            user_id = f"user_{random.randint(1000, 1050)}"
 
             payload = {
                 "transaction_id": str(uuid.uuid4()),
                 "trace_id": str(uuid.uuid4()),
-                "user_id": f"user_{random.randint(1000, 1050)}",
+                "user_id": user_id,
                 "merchant_id": random.choice(MERCHANTS),
-                "amount": pounds_to_minor_units(amount_major),
+                "amount": amount_minor_units,
                 "currency": random.choice(CURRENCIES),
                 "device_ip": f"192.168.1.{random.randint(1, 255)}",
                 "behavioral_metadata": {
@@ -52,25 +55,24 @@ async def simulate_transactions():
                         if is_scam_panic
                         else random.randint(15000, 60000)
                     ),
-                    "is_new_payee": True
-                    if is_scam_panic
-                    else random.choice([True, False]),
-                    "password_reset_24h": True if is_scam_panic else False,
+                    "is_new_payee": (
+                        True if is_scam_panic else random.choice([True, False])
+                    ),
+                    "password_reset_24h": is_scam_panic,
                 },
             }
 
             await producer.send_and_wait(settings.KAFKA_TOPIC_TRANSACTIONS, payload)
 
+            display_amount = amount_minor_units / 100
+
             if is_scam_panic:
                 print(
                     f"🚨 [APP SCAM INJECTED] High-speed panic transfer from "
-                    f"{payload['user_id']} for £{payload['amount'] / 100:.2f}!"
+                    f"{user_id} for £{display_amount:.2f}!"
                 )
             else:
-                print(
-                    f"📡 [NORMAL] {payload['user_id']} spent "
-                    f"£{payload['amount'] / 100:.2f}"
-                )
+                print(f"📡 [NORMAL] {user_id} spent £{display_amount:.2f}")
 
             await asyncio.sleep(random.uniform(0.5, 2.0))
 
