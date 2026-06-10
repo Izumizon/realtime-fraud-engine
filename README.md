@@ -25,8 +25,28 @@ It focuses on:
 * Dockerised local execution
 
 ---
+##  System Architecture
 
-## 🚀 Quick Start
+```mermaid
+flowchart LR
+    Simulator[Traffic Simulator] -->|transaction events| Kafka[(Kafka)]
+    Client[External Client / API Request] -->|POST /api/v1/transactions| API[FastAPI API Gateway]
+
+    API -->|Idempotency-Key check| Redis[(Redis Hot State)]
+    API -->|publish transaction| Kafka
+
+    Kafka -->|consume payment_transactions| Consumer[Fraud Engine Consumer]
+
+    Consumer -->|sender velocity + receiver swarm| Redis
+    Consumer -->|final decision| Postgres[(PostgreSQL Ledger)]
+
+    Consumer -->|structured JSON logs| Logs[Observability Logs]
+
+    Redis -.->|idem:{id}| Idem[API Idempotency]
+    Redis -.->|vel:user:{user_id}| SenderVelocity[Sender Velocity]
+    Redis -.->|vel:merch:{merchant_id}| ReceiverSwarm[Receiver Swarm]
+```
+##  Quick Start
 
 The full system runs locally through Docker Compose.
 
@@ -101,7 +121,7 @@ You should see structured JSON decision logs like:
 
 ---
 
-## ✅ Current Features
+##  Current Features
 
 ### Core Infrastructure
 
