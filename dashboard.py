@@ -11,17 +11,17 @@ from database import AsyncSessionLocal
 app = FastAPI(title="Fraud Operations Dashboard", version="1.0.0")
 
 WINDOW_SECONDS: dict[str, int | None] = {
-    "5m": 5 * 60,
-    "1h": 60 * 60,
-    "24h": 24 * 60 * 60,
-    "all": None,
+"5m": 5 * 60,
+"1h": 60 * 60,
+"24h": 24 * 60 * 60,
+"all": None,
 }
 
 WINDOW_LABELS: dict[str, str] = {
-    "5m": "Last 5 minutes",
-    "1h": "Last 1 hour",
-    "24h": "Last 24 hours",
-    "all": "All time",
+"5m": "Last 5 minutes",
+"1h": "Last 1 hour",
+"24h": "Last 24 hours",
+"all": "All time",
 }
 
 
@@ -45,6 +45,12 @@ def build_time_filter(window: str) -> tuple[str, dict[str, Any], str]:
         {"window_seconds": window_seconds},
         selected_window,
     )
+
+def percentage(part: int, total: int) -> float:
+    if total == 0:
+        return 0.0
+
+    return round((part / total) * 100, 1)
 
 
 DASHBOARD_HTML = """
@@ -148,7 +154,7 @@ DASHBOARD_HTML = """
         display: grid;
         grid-template-columns: repeat(6, 1fr);
         gap: 16px;
-        margin-bottom: 24px;
+        margin-bottom: 20px;
     }
 
     .card {
@@ -168,6 +174,74 @@ DASHBOARD_HTML = """
         font-size: 30px;
         font-weight: 750;
         letter-spacing: -0.04em;
+    }
+
+    .analytics {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-bottom: 20px;
+    }
+
+    .analytics-title {
+        margin: 0 0 14px;
+        font-size: 16px;
+    }
+
+    .stacked-bar {
+        display: flex;
+        overflow: hidden;
+        height: 18px;
+        border-radius: 999px;
+        background: var(--panel-soft);
+        margin-bottom: 14px;
+    }
+
+    .bar-approved {
+        background: var(--green);
+    }
+
+    .bar-review {
+        background: var(--yellow);
+    }
+
+    .bar-declined {
+        background: var(--red);
+    }
+
+    .bar-low {
+        background: var(--green);
+    }
+
+    .bar-medium {
+        background: var(--yellow);
+    }
+
+    .bar-high {
+        background: var(--red);
+    }
+
+    .legend {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 10px;
+    }
+
+    .legend-item {
+        background: var(--panel-soft);
+        border-radius: 12px;
+        padding: 12px;
+    }
+
+    .legend-label {
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 6px;
+    }
+
+    .legend-value {
+        font-size: 18px;
+        font-weight: 750;
     }
 
     .layout {
@@ -302,6 +376,10 @@ DASHBOARD_HTML = """
         .kpis {
             grid-template-columns: repeat(3, 1fr);
         }
+
+        .analytics {
+            grid-template-columns: 1fr;
+        }
     }
 
     @media (max-width: 1100px) {
@@ -321,6 +399,10 @@ DASHBOARD_HTML = """
         .layout {
             grid-template-columns: 1fr;
         }
+
+        .legend {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 
@@ -336,7 +418,7 @@ DASHBOARD_HTML = """
                 </div>
             </div>
 
- 
+
         <div class="controls">
             <button class="window-button" id="window-5m" onclick="setWindow('5m')">5m</button>
             <button class="window-button active" id="window-1h" onclick="setWindow('1h')">1h</button>
@@ -376,6 +458,58 @@ DASHBOARD_HTML = """
         <div class="card">
             <div class="kpi-label">Avg Risk</div>
             <div class="kpi-value" id="avg-risk">0</div>
+        </div>
+    </section>
+
+    <section class="analytics">
+        <div class="card">
+            <h2 class="analytics-title">Decision Split</h2>
+
+            <div class="stacked-bar">
+                <div class="bar-approved" id="decision-approved-bar"></div>
+                <div class="bar-review" id="decision-review-bar"></div>
+                <div class="bar-declined" id="decision-declined-bar"></div>
+            </div>
+
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-label">Approved</div>
+                    <div class="legend-value" id="approved-percent">0%</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-label">Review</div>
+                    <div class="legend-value" id="review-percent">0%</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-label">Declined</div>
+                    <div class="legend-value" id="declined-percent">0%</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2 class="analytics-title">Risk Breakdown</h2>
+
+            <div class="stacked-bar">
+                <div class="bar-low" id="risk-low-bar"></div>
+                <div class="bar-medium" id="risk-medium-bar"></div>
+                <div class="bar-high" id="risk-high-bar"></div>
+            </div>
+
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-label">Low Risk</div>
+                    <div class="legend-value" id="low-risk-count">0</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-label">Medium Risk</div>
+                    <div class="legend-value" id="medium-risk-count">0</div>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-label">High Risk</div>
+                    <div class="legend-value" id="high-risk-count">0</div>
+                </div>
+            </div>
         </div>
     </section>
 
@@ -438,6 +572,10 @@ DASHBOARD_HTML = """
         loadStats();
     }
 
+    function setBarWidth(id, value) {
+        document.getElementById(id).style.width = `${value}%`;
+    }
+
     function truncate(value) {
         if (!value) return "";
         if (value.length <= 12) return value;
@@ -485,6 +623,34 @@ DASHBOARD_HTML = """
         return date.toLocaleTimeString();
     }
 
+    function updateDecisionSplit(data) {
+        const approvedPercent = data.decision_percentages.approved;
+        const reviewPercent = data.decision_percentages.step_up_review;
+        const declinedPercent = data.decision_percentages.declined;
+
+        setBarWidth("decision-approved-bar", approvedPercent);
+        setBarWidth("decision-review-bar", reviewPercent);
+        setBarWidth("decision-declined-bar", declinedPercent);
+
+        document.getElementById("approved-percent").textContent = `${approvedPercent}%`;
+        document.getElementById("review-percent").textContent = `${reviewPercent}%`;
+        document.getElementById("declined-percent").textContent = `${declinedPercent}%`;
+    }
+
+    function updateRiskBreakdown(data) {
+        const low = data.risk_breakdown.low;
+        const medium = data.risk_breakdown.medium;
+        const high = data.risk_breakdown.high;
+
+        setBarWidth("risk-low-bar", low.percent);
+        setBarWidth("risk-medium-bar", medium.percent);
+        setBarWidth("risk-high-bar", high.percent);
+
+        document.getElementById("low-risk-count").textContent = `${low.count} (${low.percent}%)`;
+        document.getElementById("medium-risk-count").textContent = `${medium.count} (${medium.percent}%)`;
+        document.getElementById("high-risk-count").textContent = `${high.count} (${high.percent}%)`;
+    }
+
     async function loadStats() {
         if (paused) return;
 
@@ -498,6 +664,9 @@ DASHBOARD_HTML = """
         document.getElementById("review").textContent = data.step_up_review;
         document.getElementById("declined").textContent = data.declined;
         document.getElementById("avg-risk").textContent = data.average_risk_score;
+
+        updateDecisionSplit(data);
+        updateRiskBreakdown(data);
 
         const feed = document.getElementById("transaction-feed");
 
@@ -549,15 +718,14 @@ DASHBOARD_HTML = """
 </html>
 """
 
-
 @app.get("/", response_class=HTMLResponse)
 async def dashboard_home() -> HTMLResponse:
     return HTMLResponse(DASHBOARD_HTML)
 
-
 @app.get("/api/stats")
 async def dashboard_stats(window: str = "1h") -> JSONResponse:
     time_filter, query_params, selected_window = build_time_filter(window)
+
 
     async with AsyncSessionLocal() as session:
         status_result = await session.execute(
@@ -573,7 +741,8 @@ async def dashboard_stats(window: str = "1h") -> JSONResponse:
         )
 
     status_counts = {
-        str(row["status"]): int(row["row_count"]) for row in status_result.mappings()
+        str(row["status"]): int(row["row_count"])
+        for row in status_result.mappings()
     }
 
     summary_result = await session.execute(
@@ -589,6 +758,7 @@ async def dashboard_stats(window: str = "1h") -> JSONResponse:
         query_params,
     )
     summary = summary_result.one()
+    total_volume = int(summary.total_volume)
 
     all_time_result = await session.execute(
         text(
@@ -599,6 +769,29 @@ async def dashboard_stats(window: str = "1h") -> JSONResponse:
         )
     )
     all_time_summary = all_time_result.one()
+
+    risk_result = await session.execute(
+        text(
+            f"""
+            SELECT
+                CASE
+                    WHEN risk_score < 40 THEN 'low'
+                    WHEN risk_score < 70 THEN 'medium'
+                    ELSE 'high'
+                END AS risk_band,
+                COUNT(*) AS row_count
+            FROM transactions
+            {time_filter}
+            GROUP BY risk_band
+            """
+        ),
+        query_params,
+    )
+
+    risk_counts = {
+        str(row["risk_band"]): int(row["row_count"])
+        for row in risk_result.mappings()
+    }
 
     vectors_result = await session.execute(
         text(
@@ -670,15 +863,42 @@ async def dashboard_stats(window: str = "1h") -> JSONResponse:
             }
         )
 
+    approved = status_counts.get("APPROVED", 0)
+    step_up_review = status_counts.get("STEP-UP_REVIEW", 0)
+    declined = status_counts.get("DECLINED", 0)
+
+    low_risk = risk_counts.get("low", 0)
+    medium_risk = risk_counts.get("medium", 0)
+    high_risk = risk_counts.get("high", 0)
+
     payload: dict[str, Any] = {
         "window": selected_window,
         "window_label": WINDOW_LABELS[selected_window],
-        "total_volume": int(summary.total_volume),
+        "total_volume": total_volume,
         "all_time_volume": int(all_time_summary.total_volume),
-        "approved": status_counts.get("APPROVED", 0),
-        "step_up_review": status_counts.get("STEP-UP_REVIEW", 0),
-        "declined": status_counts.get("DECLINED", 0),
+        "approved": approved,
+        "step_up_review": step_up_review,
+        "declined": declined,
         "average_risk_score": float(summary.average_risk_score),
+        "decision_percentages": {
+            "approved": percentage(approved, total_volume),
+            "step_up_review": percentage(step_up_review, total_volume),
+            "declined": percentage(declined, total_volume),
+        },
+        "risk_breakdown": {
+            "low": {
+                "count": low_risk,
+                "percent": percentage(low_risk, total_volume),
+            },
+            "medium": {
+                "count": medium_risk,
+                "percent": percentage(medium_risk, total_volume),
+            },
+            "high": {
+                "count": high_risk,
+                "percent": percentage(high_risk, total_volume),
+            },
+        },
         "top_fraud_vectors": [
             {
                 "reason": str(row["reason"]),
@@ -690,3 +910,4 @@ async def dashboard_stats(window: str = "1h") -> JSONResponse:
     }
 
     return JSONResponse(payload)
+
