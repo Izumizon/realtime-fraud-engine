@@ -1,7 +1,8 @@
 import hashlib
 import inspect
 import json
-from collections.abc import Awaitable
+from collections.abc import AsyncIterator, Awaitable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Annotated, Any, cast
 from uuid import UUID, uuid4
@@ -15,8 +16,6 @@ from redis.exceptions import RedisError
 
 from config import settings
 from redis_fraud_evaluator import RedisSettings, create_redis_client
-
-app = FastAPI(title=settings.PROJECT_NAME, version="1.0.0")
 
 producer: AIOKafkaProducer | None = None
 redis_client: Redis | None = None
@@ -338,7 +337,6 @@ async def mark_idempotency_failed(
 # ---------------------------------------------------------------------------
 
 
-@app.on_event("startup")
 async def startup_event() -> None:
     global producer
     global redis_client
@@ -378,7 +376,6 @@ async def startup_event() -> None:
     print("✅ Kafka Gateway Online.")
 
 
-@app.on_event("shutdown")
 async def shutdown_event() -> None:
     global producer
     global redis_client
@@ -391,6 +388,21 @@ async def shutdown_event() -> None:
         await redis_client.connection_pool.disconnect()
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    await startup_event()
+
+    try:
+        yield
+    finally:
+        await shutdown_event()
+
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    version="1.0.0",
+    lifespan=lifespan,
+)
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
