@@ -1,6 +1,7 @@
 from datetime import datetime
 
-from sqlalchemy import Column, DateTime, Integer, String
+from sqlalchemy import Column, DateTime, Float, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
 
 from database import Base
 
@@ -26,5 +27,11 @@ class TransactionRecord(Base):
 
     status = Column(String, nullable=False)
     risk_score = Column(Integer, nullable=False)
+
+    # Dashboard / observability fields
+    risk_reasons = Column(JSONB, nullable=False, default=list)
+    redis_eval_ms = Column(Float, nullable=False, default=0.0)
+    sender_velocity_count = Column(Integer, nullable=True)
+    receiver_unique_sender_count = Column(Integer, nullable=True)
 
     received_at = Column(DateTime, default=datetime.utcnow, nullable=False)

@@ -2,6 +2,7 @@ import asyncio
 
 from sqlalchemy.exc import OperationalError
 
+import models  # noqa: F401
 from database import Base, engine
 
 

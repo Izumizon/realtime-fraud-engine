@@ -122,7 +122,23 @@ services:
       POSTGRES_USER: revolut_user
       POSTGRES_PASSWORD: super_secret_password
       POSTGRES_DB: fraud_engine
-
+  fraud_dashboard:
+    build: .
+    container_name: fraud_operations_dashboard
+    command: uvicorn dashboard:app --host 0.0.0.0 --port 8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db_init:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: revolut_user
+      POSTGRES_PASSWORD: super_secret_password
+      POSTGRES_DB: fraud_engine
   traffic_simulator:
     build: .
     container_name: fraud_traffic_simulator

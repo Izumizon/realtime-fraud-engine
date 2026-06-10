@@ -123,6 +123,10 @@ async def save_transaction_to_ledger(
     tx_data: dict[str, Any],
     final_status: str,
     risk_score: int,
+    risk_reasons: list[str],
+    redis_eval_ms: float,
+    sender_velocity_count: int | None,
+    receiver_unique_sender_count: int | None,
 ) -> None:
     """
     Persist the evaluated transaction to the immutable PostgreSQL ledger.
@@ -142,6 +146,10 @@ async def save_transaction_to_ledger(
             currency=tx_data["currency"],
             status=final_status,
             risk_score=risk_score,
+            risk_reasons=risk_reasons,
+            redis_eval_ms=redis_eval_ms,
+            sender_velocity_count=sender_velocity_count,
+            receiver_unique_sender_count=receiver_unique_sender_count,
         )
         .on_conflict_do_nothing(index_elements=["transaction_id"])
     )
@@ -257,11 +265,14 @@ async def process_transaction(
         sender_velocity_count=sender_velocity_count,
         receiver_unique_sender_count=receiver_unique_sender_count,
     )
-
     await save_transaction_to_ledger(
         tx_data=tx_data,
         final_status=final_status,
         risk_score=final_score,
+        risk_reasons=all_reasons,
+        redis_eval_ms=round(redis_eval_ms, 3),
+        sender_velocity_count=sender_velocity_count,
+        receiver_unique_sender_count=receiver_unique_sender_count,
     )
 
 
