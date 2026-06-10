@@ -64,7 +64,9 @@ def build_normal_transaction() -> dict[str, Any]:
 def build_app_scam_transaction() -> dict[str, Any]:
     return build_transaction(
         user_id=random.choice(NORMAL_USERS),
-        merchant_id=random.choice(["m-crypto-001", "m-transfer-002", "m-safe-account-003"]),
+        merchant_id=random.choice(
+            ["m-crypto-001", "m-transfer-002", "m-safe-account-003"]
+        ),
         amount_major=random.uniform(500.0, 3500.0),
         is_new_payee=True,
         password_reset_24h=True,
@@ -141,8 +143,7 @@ async def simulate_transactions() -> None:
                 )
             else:
                 print(
-                    f"🤖 [BOT VELOCITY] {payload['user_id']} sent "
-                    f"£{display_amount:.2f}"
+                    f"🤖 [BOT VELOCITY] {payload['user_id']} sent £{display_amount:.2f}"
                 )
 
             await asyncio.sleep(random.uniform(0.5, 1.5))
