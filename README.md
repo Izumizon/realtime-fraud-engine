@@ -7,6 +7,7 @@
 ![Redis](https://img.shields.io/badge/Redis-hot--state-red.svg)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-ledger-blue.svg)
 ![Tests](https://img.shields.io/badge/tests-18%20passing-brightgreen.svg)
+![Live Fraud Operations Dashboard](docs/assets/dashboard-demo.png)
 
 A production-inspired real-time fraud detection and payment authorization engine built with **FastAPI**, **Kafka**, **Redis**, **PostgreSQL**, and **Docker Compose**.
 
