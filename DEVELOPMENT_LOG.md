@@ -1,584 +1,676 @@
-\# Development Log — Real-Time Fraud Detection Engine
+# Development Log — Real-Time Fraud Detection Engine
 
+## Project Overview
 
+This project is a production-inspired real-time fraud detection and payment authorization engine built with **FastAPI**, **Kafka**, **Redis**, **PostgreSQL**, and **Docker Compose**.
 
-\## Project Overview
+The goal was to build a portfolio-grade backend system that demonstrates:
 
+* event-driven architecture
+* distributed systems thinking
+* real-time fraud detection
+* Redis-backed hot-state processing
+* API idempotency
+* PostgreSQL ledger persistence
+* structured observability
+* automated testing
+* CI/CD discipline
+* a live operational dashboard
 
+The project was designed with fintech-style constraints in mind: low-latency authorization, duplicate request protection, replay-safe processing, explainable fraud decisions, and clear separation between transaction ingestion, fraud decisioning, persistence, and analytics.
 
-This project is a production-inspired real-time fraud detection and payment authorization engine built with FastAPI, Kafka, Redis, PostgreSQL, and Docker Compose.
+---
 
+## Why This Project Was Built
 
+The project began as a targeted portfolio project for backend/Python fintech engineering roles.
 
-The goal was to build a portfolio-grade backend system that demonstrates event-driven architecture, distributed systems thinking, fraud detection logic, API idempotency, observability, testing, and CI/CD practices.
+Instead of building a generic CRUD application, I wanted to build something closer to the kind of system used in financial infrastructure:
 
+* receiving payment-like events
+* evaluating fraud risk
+* handling duplicate requests safely
+* maintaining a durable ledger
+* processing real-time streams
+* exposing operational visibility
+* testing correctness with automation
 
+The project evolved from a simple fraud scoring API into a distributed local system with multiple services running together through Docker Compose.
 
-\---
+---
 
+# Timeline
 
+## Phase 1 — Architecture and System Design
 
-\## Timeline
+The project began with architecture planning before implementation.
 
+The initial design focused on a fintech-style transaction pipeline using:
 
+* FastAPI as the API Gateway
+* Kafka as the event stream
+* Redis as the hot-state layer
+* PostgreSQL as the durable ledger
+* a traffic simulator to generate normal and suspicious transaction activity
 
-\### Phase 1 — Architecture and System Design
+The architecture was shaped around several distributed systems concerns:
 
+* hot path vs cold path separation
+* bounded effectively-once processing
+* API idempotency
+* replay-safe consumers
+* fraud decision explainability
+* risk-tiered degradation
+* observability and auditability
 
+A major early design decision was recognizing that Kafka should not be the only mechanism for live authorization decisions. Kafka is useful for asynchronous event processing, analytics, and auditing, but real-time payment authorization requires low-latency synchronous logic in the hot path.
 
-The project began as an architecture-first exercise. I designed the system around a fintech-style payment authorization flow with clear separation between the hot path and cold path.
+---
 
+## Phase 2 — Core Infrastructure
 
+I created the initial Docker Compose environment with:
 
-The initial design focused on:
+* PostgreSQL
+* Redis
+* Kafka
+* Zookeeper
 
+This established the infrastructure foundation for the system.
 
+PostgreSQL became the durable transaction ledger. Redis became the low-latency shared state layer. Kafka became the event broker for transaction events.
 
-\- FastAPI as the API Gateway
+This phase also involved practical Docker debugging, including container startup ordering, service names, ports, health checks, and environment configuration.
 
-\- Kafka as the event stream
+---
 
-\- Redis as the hot-state layer
+## Phase 3 — API Gateway and Kafka Pipeline
 
-\- PostgreSQL as the immutable ledger
+I built the FastAPI API Gateway to receive transaction requests and publish events to Kafka.
 
-\- A traffic simulator for synthetic fraud and normal activity
+The API Gateway validates incoming payloads using Pydantic models and adds server-generated metadata such as timestamps and trace IDs.
 
+At this stage, the system could accept transaction-like requests and place them onto the Kafka event stream for asynchronous processing.
 
+This created the first API-facing entry point into the system.
 
-The design also included key distributed systems concepts:
+---
 
-
-
-\- bounded effectively-once processing
-
-\- risk-tiered degradation
-
-\- idempotency keys
-
-\- replay-safe consumers
-
-\- structured observability
-
-\- fraud decision explainability boundaries
-
-
-
-The architecture was iterated heavily before implementation to clarify service ownership, failure modes, and what was intentionally out of scope.
-
-
-
-\---
-
-
-
-\### Phase 2 — Core Infrastructure
-
-
-
-I created a Docker Compose environment containing:
-
-
-
-\- PostgreSQL
-
-\- Redis
-
-\- Kafka
-
-\- Zookeeper
-
-
-
-This established the core infrastructure needed for an event-driven fraud detection system.
-
-
-
-PostgreSQL was used as the durable ledger, Redis as the low-latency state store, and Kafka as the event broker between the API and the fraud engine.
-
-
-
-\---
-
-
-
-\### Phase 3 — API Gateway and Kafka Pipeline
-
-
-
-I built the FastAPI API Gateway to receive transaction payloads and publish them to Kafka.
-
-
-
-The API validates incoming payloads using Pydantic models and adds server-side metadata such as timestamps and trace IDs.
-
-
-
-This phase proved that the frontend-facing API could ingest payment events and place them onto the event stream for asynchronous processing.
-
-
-
-\---
-
-
-
-\### Phase 4 — PostgreSQL Ledger and Kafka Consumer
-
-
+## Phase 4 — PostgreSQL Ledger and Kafka Consumer
 
 I implemented the fraud engine Kafka consumer using `aiokafka`.
 
+The consumer reads transaction events from Kafka, evaluates fraud risk, and writes the resulting decision into PostgreSQL using SQLAlchemy async sessions.
 
+This phase created the first full end-to-end pipeline:
 
-The consumer reads transaction events from Kafka, calculates an initial fraud risk score, and writes the final decision into PostgreSQL using SQLAlchemy async sessions.
+```text
+FastAPI → Kafka → Fraud Engine Consumer → PostgreSQL
+```
 
+The PostgreSQL table used `transaction_id` as the primary key so duplicate Kafka deliveries could not create duplicate ledger records.
 
+This introduced the idea of the ledger as the durable source of truth for evaluated transactions.
 
-The ledger uses `transaction\_id` as the primary key so duplicate processing cannot corrupt stored transaction records.
+---
 
+## Phase 5 — Behavioural Fraud Scoring
 
+I added deterministic fraud scoring based on behavioural metadata.
 
-This phase created the first end-to-end flow:
+The first static fraud signals were:
 
+* new payee
+* password reset in the last 24 hours
+* unusually fast transaction completion time
 
+The scoring model uses a 0–100 risk score and maps scores into three decision bands:
 
-FastAPI → Kafka → Consumer → PostgreSQL
+| Risk Score | Decision       |
+| ---------- | -------------- |
+| 0–39       | APPROVED       |
+| 40–69      | STEP-UP_REVIEW |
+| 70–100     | DECLINED       |
 
+This made the fraud engine explainable. Instead of returning only true or false, each decision includes a score and a list of reasons.
 
+---
 
-\---
+## Phase 6 — Redis Fraud Intelligence Layer
 
-
-
-\### Phase 5 — Redis Fraud Intelligence Layer
-
-
-
-I added a Redis-based intelligence layer using `redis.asyncio` and Lua scripts.
-
-
+I added a Redis-backed fraud intelligence layer using `redis.asyncio` and Lua scripts.
 
 The Redis evaluator implements two real-time fraud checks:
 
+### Sender Velocity Detection
 
+Tracks how many unique transaction attempts a user makes inside a sliding time window.
 
-1\. Sender velocity detection  
+This models behaviour such as card testing, bot-like retries, or compromised account activity.
 
-&#x20;  Tracks how many transaction attempts a user makes inside a 10-minute sliding window.
+### Receiver Swarm Detection
 
+Tracks how many unique users send money to the same merchant inside a sliding time window.
 
+This models mule-network behaviour and receiver-centric fraud patterns.
 
-2\. Receiver swarm detection  
+Redis was chosen because local Python memory would not work correctly once the API or consumer is horizontally scaled. Shared fraud state must live outside a single process.
 
-&#x20;  Tracks how many unique users send money to the same merchant inside a 10-minute window.
+The Redis logic uses atomic Lua scripts so the sliding-window updates and counts happen safely under concurrent access.
 
+---
 
+## Phase 7 — API Idempotency
 
-This expanded the fraud model beyond basic user-level rules and introduced receiver-centric detection for mule-network and micro-structuring behaviour.
+I implemented Redis-backed API idempotency using the `Idempotency-Key` header.
 
+This protects the API Gateway against:
 
+* user double-clicks
+* merchant retries
+* network timeouts
+* repeated identical client submissions
+* same-key different-payload misuse
 
-\---
+The idempotency design supports:
 
+| Scenario                                      | Behaviour                                 |
+| --------------------------------------------- | ----------------------------------------- |
+| First request with a new key                  | Reserve key and publish to Kafka          |
+| Same key with same payload after completion   | Return cached response                    |
+| Same key while original request is processing | Return 202 Accepted                       |
+| Same key with different payload               | Return 409 Conflict                       |
+| Internal failure                              | Mark state as failed so retry is possible |
 
+This phase made the API much closer to a real payment-style service, where duplicate processing can cause serious correctness issues.
 
-\### Phase 6 — API Idempotency
+---
 
+## Phase 8 — Trace IDs and Structured Logging
 
+I added end-to-end `trace_id` propagation through the transaction pipeline:
 
-I implemented Redis-backed API idempotency using `Idempotency-Key`.
+```text
+API Gateway → Kafka → Fraud Engine → Redis → PostgreSQL
+```
 
+I then replaced human-only print output with structured JSON decision logs.
 
+Each fraud decision log includes:
 
-This protects against:
+* event name
+* service name
+* trace ID
+* transaction ID
+* user ID
+* merchant ID
+* amount
+* currency
+* decision status
+* risk score
+* fraud reasons
+* Redis evaluation latency
+* sender velocity count
+* receiver unique sender count
+* Kafka offset commits
 
+This made the system easier to debug and prepared it for future observability tooling such as Grafana, Loki, ELK, or Prometheus.
 
+---
 
-\- user double-clicks
+## Phase 9 — Automated Testing
 
-\- merchant retries
+I added a pytest suite covering the most important correctness behaviour.
 
-\- network timeouts
+The tests cover:
 
-\- duplicate client submissions
+* static fraud scoring
+* risk routing boundaries
+* Redis sender velocity detection
+* Redis receiver swarm detection
+* duplicate transaction handling
+* API idempotency behaviour
+* missing idempotency header rejection
+* conflicting idempotency payload rejection
 
+The project reached:
 
+```text
+18 passing tests
+```
 
-The idempotency layer supports:
+This phase was important because fraud and payment-style systems should not rely only on manual testing. The tests prove key rules and edge cases are repeatable.
 
+---
 
-
-\- first request reservation
-
-\- cached completed responses
-
-\- in-flight duplicate detection
-
-\- conflicting payload rejection
-
-
-
-This made the API Gateway much closer to a real payment authorization system.
-
-
-
-\---
-
-
-
-\### Phase 7 — Trace IDs and Structured Logging
-
-
-
-I added end-to-end `trace\_id` propagation through:
-
-
-
-FastAPI → Kafka → Consumer → Redis → PostgreSQL
-
-
-
-I then replaced human-only print statements in the fraud engine with structured JSON logs.
-
-
-
-Each transaction decision log includes:
-
-
-
-\- trace ID
-
-\- transaction ID
-
-\- user ID
-
-\- merchant ID
-
-\- amount
-
-\- currency
-
-\- decision status
-
-\- risk score
-
-\- fraud reasons
-
-\- Redis evaluation latency
-
-\- Kafka offset commits
-
-
-
-This made the system ready for future observability tooling such as Grafana, Loki, or ELK.
-
-
-
-\---
-
-
-
-\### Phase 8 — Automated Testing
-
-
-
-I added a pytest suite covering:
-
-
-
-\- static fraud scoring
-
-\- risk routing boundaries
-
-\- Redis sender velocity detection
-
-\- Redis receiver swarm detection
-
-\- duplicate transaction handling
-
-\- API idempotency behaviour
-
-\- conflicting idempotency payload rejection
-
-\- missing idempotency header rejection
-
-
-
-The project reached 18 passing tests.
-
-
-
-This phase helped prove that important correctness properties were tested instead of only manually verified.
-
-
-
-\---
-
-
-
-\### Phase 9 — Full Dockerisation
-
-
+## Phase 10 — Full Dockerisation
 
 I expanded Docker Compose so the full system can run with one command.
 
+The Docker setup starts:
 
-
-The Docker setup now starts:
-
-
-
-\- PostgreSQL
-
-\- Redis
-
-\- Kafka
-
-\- Zookeeper
-
-\- FastAPI API Gateway
-
-\- Fraud Engine Consumer
-
-\- Traffic Simulator
-
-
+* PostgreSQL
+* Redis
+* Kafka
+* Zookeeper
+* FastAPI API Gateway
+* Fraud Engine Consumer
+* Traffic Simulator
+* Fraud Operations Dashboard
 
 This changed the project from a manually run collection of scripts into a reproducible local system.
 
+The full system can now be started with:
 
+```bash
+docker compose up --build
+```
 
-\---
+---
 
+## Phase 11 — Calibrated Traffic Simulator
 
+I improved the traffic simulator so the dashboard would show meaningful patterns instead of random noise.
 
-\### Phase 10 — README and Documentation
+The simulator now generates:
 
+* normal customer spending
+* APP scam panic transfers
+* mule swarm behaviour
+* bot-like sender velocity behaviour
 
+A key issue was that the original simulator had too few merchants and users, which caused normal traffic to eventually trigger receiver swarm detection everywhere.
 
-I updated the README to reflect the real current system.
+The simulator was recalibrated with more normal users and merchants, plus specific intentional attack scenarios. This made the dashboard more realistic and easier to demo.
 
+---
 
+## Phase 12 — README and Documentation
+
+I updated the README to reflect the real system.
 
 The README now includes:
 
+* project overview
+* architecture diagram
+* one-command Docker startup
+* dashboard instructions
+* fraud scoring model
+* idempotency model
+* data architecture
+* testing instructions
+* roadmap
+* AI usage disclosure
+* demo screenshot
 
+I also fixed the repository documentation naming issue by replacing the duplicate `README.md.md` with the correct `README.md`.
 
-\- one-command Docker startup
+---
 
-\- current feature list
+## Phase 13 — GitHub Actions CI
 
-\- architecture explanation
+I added GitHub Actions to automatically run checks on every push.
 
-\- fraud scoring model
+The CI pipeline runs:
 
-\- idempotency model
+* Ruff linting
+* mypy type checking
+* pytest test suite
 
-\- testing instructions
+The workflow also starts Redis for the Redis integration tests.
 
-\- roadmap
+This gave the project a real quality gate and made the repository more professional.
 
-\- AI usage disclosure
+---
 
+## Phase 14 — Ruff Linting and mypy Type Checking
 
+I added Ruff for linting and mypy for static type checking.
 
-I also renamed the README correctly from `README.md.md` to `README.md`.
+This phase caught and forced me to fix several real engineering issues:
 
+* FastAPI `Header(...)` defaults were changed to `Annotated`
+* exception chaining was made explicit using `raise ... from exc`
+* Redis async typing had to be handled carefully
+* Redis script loading/evaluation required helper functions for type safety
+* imports and formatting were cleaned up
+* dictionary typing in the traffic simulator was improved
 
+This phase made the codebase cleaner, safer, and easier to maintain.
 
-\---
+---
 
+## Phase 15 — Live Fraud Operations Dashboard
 
+I added a browser-based Fraud Operations Dashboard using FastAPI and vanilla HTML/CSS/JavaScript.
 
-\### Phase 11 — CI/CD
+The dashboard reads from the PostgreSQL ledger and displays:
 
+* total transaction volume
+* approved transaction count
+* step-up review count
+* declined transaction count
+* average risk score
+* latest transaction decisions
+* top fraud vectors
+* color-coded decision statuses
+* color-coded fraud reason badges
 
+This made the system much easier to demo than raw terminal logs.
 
-I added GitHub Actions to automatically run the test suite on every push and pull request.
+Instead of only showing backend output, the project now has an operational view similar to what a fraud analyst might use.
 
+---
 
+## Phase 16 — Dashboard Time Filters
 
-The workflow starts a Redis service for Redis integration tests, installs dependencies, and runs the test suite.
+I added dashboard time filters:
 
+```text
+5m | 1h | 24h | All
+```
 
+The dashboard API now supports:
 
-This gave the project a baseline CI pipeline.
+```text
+/api/stats?window=5m
+/api/stats?window=1h
+/api/stats?window=24h
+/api/stats?window=all
+```
 
+This made the dashboard more realistic because fraud operations teams care about what is happening right now, not only all-time totals.
 
+I also added:
 
-\---
+* active window labels
+* window volume
+* all-time volume comparison
+* empty states for time windows with no transactions
 
+This made the filter behaviour clear during demos.
 
+---
 
-\### Phase 12 — Ruff Linting and mypy Type Checking
+## Phase 17 — Dashboard Visual Analytics Upgrade
 
+I improved the dashboard visual design by adding:
 
+* Decision Split bar
+* Risk Breakdown bar
+* percentage breakdowns for approved, review, and declined transactions
+* low, medium, and high risk breakdowns
+* cleaner visual hierarchy
 
-I added Ruff for linting and mypy for type checking.
+This made the dashboard easier to understand at a glance.
 
+The dashboard now answers two important operational questions quickly:
 
+```text
+What is the current decision split?
+How risky is the current transaction stream?
+```
 
-This required fixing several real engineering issues:
+This phase made the project look more like a real fraud operations tool rather than just a table of events.
 
+---
 
+## Phase 18 — Demo Screenshot
 
-\- FastAPI `Header(...)` defaults were changed to `Annotated`
+I added a dashboard screenshot to the README.
 
-\- exception chaining was made explicit with `raise ... from exc`
+This gives GitHub visitors an immediate visual understanding of the project without needing to clone and run it first.
 
-\- Redis Lua script arguments were normalised for type checking
+The screenshot shows:
 
-\- Redis script loading/evaluation was wrapped to handle redis-py typing
+* active time window
+* KPI cards
+* decision split
+* risk breakdown
+* live transaction feed
+* fraud reason badges
+* top fraud vectors
 
-\- the traffic simulator was cleaned up to avoid mixed-dictionary type issues
+This improved the portfolio presentation of the project.
 
+---
 
+# Major Technical Problems Solved
 
-The CI pipeline now checks:
+## Docker and Service Startup Issues
 
+I dealt with multiple Docker-related issues, including services starting before dependencies were ready.
 
+PostgreSQL needed health checks and initialization ordering so tables existed before the app services attempted to write data.
 
-\- Ruff linting
+Kafka and Zookeeper also required careful Docker Compose configuration so the broker was reachable from both local development and other containers.
 
-\- mypy type checking
+---
 
-\- pytest test suite
+## Windows Localhost and Redis Testing
 
+Redis tests initially had connection inconsistencies on Windows.
 
+Switching Redis integration test URLs to `127.0.0.1` made the tests more deterministic in the local Windows environment.
 
-\---
+---
 
+## Dockerfile Naming and Build Context
 
+The Docker build initially failed because the file was saved as `Dockerfile.txt` instead of `Dockerfile`.
 
-\## Major Technical Problems Solved
+Fixing the file name allowed Docker Compose to build the Python services correctly.
 
+---
 
+## PowerShell curl JSON Quoting
 
-\### Docker Startup Race Conditions
+Sending JSON payloads through PowerShell `curl.exe` caused escaping issues.
 
+This helped clarify the difference between PowerShell aliases, real `curl.exe`, JSON quoting, and HTTP request formatting on Windows.
 
+---
 
-PostgreSQL could be marked as started before it was ready to accept connections. This was handled with startup ordering and database initialization logic.
+## GitHub Workflow Permissions
 
+Pushing the GitHub Actions workflow initially failed because the authentication token did not have the required workflow scope.
 
+Re-authenticating through the browser fixed the push.
 
-\### Redis Connection Issues on Windows
+---
 
+## Ruff and mypy Failures
 
+Ruff and mypy caught several issues that the app could still run with locally.
 
-Redis tests initially failed because `localhost` resolved inconsistently on Windows. Switching Redis test URLs to `127.0.0.1` made the tests deterministic.
+These included:
 
+* import ordering
+* unused imports
+* FastAPI argument default warnings
+* exception chaining
+* Redis async typing
+* dashboard typing issues
 
+Fixing these improved the quality of the codebase.
 
-\### Kafka Offset Safety
+---
 
+## Dashboard Runtime and Syntax Issues
 
+While building the dashboard, I hit several issues caused by:
 
-Kafka offsets are committed only after transaction processing succeeds, reducing the risk of losing messages before they are persisted.
+* Markdown code fences accidentally pasted into Python files
+* incorrect indentation in async database blocks
+* Docker containers running older builds
+* endpoint responses not matching the current local code
+* dashboard services needing forced rebuilds
 
+These were resolved through local syntax checks, Docker logs, forced rebuilds, and endpoint verification.
 
+---
 
-\### API Idempotency Edge Cases
+# Architecture Decisions and Tradeoffs
 
+## Kafka as Cold Path Infrastructure
 
+Kafka is used for event transport and asynchronous processing.
 
-The system handles completed duplicates, in-flight duplicates, and same-key different-payload conflicts.
+The project intentionally treats Kafka as a cold-path or event pipeline component rather than the only mechanism for live authorization decisions.
 
+This distinction matters because real payment authorization requires deterministic low-latency responses, while Kafka is better suited for decoupled downstream processing, analytics, and audit flows.
 
+---
 
-\### Type Checking Async Redis Code
+## Redis for Hot State
 
+Redis is used for short-lived, low-latency state such as:
 
+* idempotency keys
+* sender velocity windows
+* receiver swarm windows
 
-Redis async type hints were broader than runtime behaviour. Helper functions were introduced to normalise Redis script loading and evaluation for mypy.
+This avoids relying on local Python memory, which would fail under horizontal scaling.
 
+---
 
+## PostgreSQL as Durable Ledger
 
-\---
+PostgreSQL is used as the durable transaction ledger.
 
+The ledger stores final decisions and supporting metadata such as fraud reasons and Redis metrics.
 
+Using PostgreSQL gives the system a durable source of truth separate from transient Redis state and Kafka transport.
 
-\## AI Usage
+---
 
+## Explainable Rule-Based Scoring
 
+The fraud model is intentionally explainable.
 
-AI tools were used during this project as engineering assistants for architecture review, debugging, documentation structure, and production-readiness critique.
+Instead of using a black-box machine learning model, the current version uses deterministic scoring rules and Redis dynamic fraud signals.
 
+Every decision can include specific reasons, such as:
 
+* `new_payee`
+* `recent_password_reset`
+* `panic_execution_speed`
+* `sender_velocity_exceeded`
+* `receiver_swarm_detected`
 
-The work was not treated as a copy-paste exercise. I used AI similarly to a senior engineering mentor: to challenge my assumptions, explain tradeoffs, and help identify hidden failure modes.
+This is important for auditability and interview explanation.
 
+---
 
+## Dashboard Without a Frontend Framework
 
-All implementation decisions, local debugging, test execution, commits, and validation were performed by me.
+The dashboard was built with FastAPI, HTML, CSS, and vanilla JavaScript instead of React or another frontend framework.
 
+This kept the project backend-focused while still making it visually demo-friendly.
 
+The goal was operational clarity, not frontend complexity.
 
-\---
+---
 
+# AI Usage and Ownership
 
+AI tools were used during this project as engineering assistants.
 
-\## Current Status
+They helped with:
 
+* architecture review
+* debugging guidance
+* production-readiness critique
+* documentation structure
+* test planning
+* explaining distributed systems tradeoffs
 
+The project was not treated as a copy-paste exercise.
 
-The system currently includes:
+I used AI similarly to a senior engineering mentor: to challenge assumptions, suggest tradeoffs, and help identify hidden failure modes.
 
+All implementation decisions, local debugging, testing, commits, validation, and final project direction were owned by me.
 
+---
 
-\- Dockerised full-stack local environment
+# What I Learned
 
-\- FastAPI API Gateway
+This project strengthened my understanding of:
 
-\- Kafka event pipeline
+* FastAPI service design
+* async Python
+* Kafka producers and consumers
+* Redis Lua scripting
+* sliding-window fraud detection
+* PostgreSQL ledger design
+* API idempotency
+* trace ID propagation
+* structured JSON logging
+* Docker Compose orchestration
+* GitHub Actions CI
+* Ruff linting
+* mypy type checking
+* dashboard-driven operational visibility
+* distributed systems tradeoffs
+* debugging real integration issues
 
-\- Redis fraud intelligence layer
+The biggest learning outcome was that building production-inspired systems is not just about writing feature code. A large part of engineering is handling failure modes, testing edge cases, observing system behaviour, and making tradeoffs explicit.
 
-\- PostgreSQL transaction ledger
+---
 
-\- traffic simulator
+# Current Status
 
-\- API idempotency
+The project currently includes:
 
-\- trace ID propagation
+* Dockerised full-stack local environment
+* FastAPI API Gateway
+* Kafka event pipeline
+* Redis fraud intelligence layer
+* PostgreSQL transaction ledger
+* traffic simulator
+* API idempotency
+* trace ID propagation
+* structured JSON logs
+* live fraud operations dashboard
+* dashboard time filters
+* dashboard visual analytics
+* README demo screenshot
+* 18 passing tests
+* Ruff linting
+* mypy type checking
+* GitHub Actions CI
 
-\- structured JSON logs
+The project is now portfolio-ready as a backend engineering showcase.
 
-\- 18 passing tests
+---
 
-\- Ruff linting
-
-\- mypy type checking
-
-\- GitHub Actions CI
-
-
-
-\---
-
-
-
-\## Next Steps
-
-
+# Future Improvements
 
 Planned future improvements:
 
+* dashboard API tests
+* transaction detail page by `trace_id`
+* FastAPI lifespan migration to replace deprecated `on_event`
+* dead-letter queue for malformed Kafka messages
+* Prometheus metrics endpoint
+* Grafana dashboard
+* CI status badge in README
+* more integration tests
+* optional load testing with Locust
+* Architecture Decision Records in `docs/adr`
 
+---
 
-\- Prometheus metrics endpoint
+# Final Reflection
 
-\- Grafana dashboard
+This project started as an idea for a fintech portfolio project and became a realistic local fraud detection platform.
 
-\- architecture diagrams
+The most valuable part was not only building the services, but learning how the pieces interact:
 
-\- richer traffic simulator scenarios
+```text
+API Gateway → Kafka → Fraud Engine → Redis → PostgreSQL → Dashboard
+```
 
-\- more integration tests
+Each phase exposed a different kind of engineering challenge: infrastructure, correctness, state management, observability, testing, typing, and presentation.
 
-\- dead-letter queue for malformed Kafka messages
-
-\- improved FastAPI lifespan handling
-
-\- CI badge in README
-
+The final result is a project that demonstrates both practical Python backend development and deeper distributed systems thinking.
