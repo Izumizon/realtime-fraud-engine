@@ -6,7 +6,7 @@
 ![Kafka](https://img.shields.io/badge/Kafka-event--streaming-orange.svg)
 ![Redis](https://img.shields.io/badge/Redis-hot--state-red.svg)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-ledger-blue.svg)
-![Tests](https://img.shields.io/badge/tests-21%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-24%20passing-brightgreen.svg)
 ![Live Fraud Operations Dashboard](docs/assets/dashboard-demo.png)
 ![Python Tests](https://github.com/Izumizon/realtime-fraud-engine/actions/workflows/tests.yml/badge.svg)
 
