@@ -549,14 +549,15 @@ DASHBOARD_HTML = """
 </html>
 """
 
+
 @app.get("/", response_class=HTMLResponse)
 async def dashboard_home() -> HTMLResponse:
     return HTMLResponse(DASHBOARD_HTML)
 
+
 @app.get("/api/stats")
 async def dashboard_stats(window: str = "1h") -> JSONResponse:
     time_filter, query_params, selected_window = build_time_filter(window)
-
 
     async with AsyncSessionLocal() as session:
         status_result = await session.execute(
@@ -572,8 +573,7 @@ async def dashboard_stats(window: str = "1h") -> JSONResponse:
         )
 
     status_counts = {
-        str(row["status"]): int(row["row_count"])
-        for row in status_result.mappings()
+        str(row["status"]): int(row["row_count"]) for row in status_result.mappings()
     }
 
     summary_result = await session.execute(
