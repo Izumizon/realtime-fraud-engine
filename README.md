@@ -31,7 +31,7 @@ It focuses on:
 
 ## 🧭 System Architecture
 
-```mermaid
+mermaid
 flowchart LR
     Simulator[Traffic Simulator] -->|transaction events| Kafka[(Kafka)]
     Client[External Client / API Request] -->|POST /api/v1/transactions| API[FastAPI API Gateway]
@@ -51,7 +51,7 @@ flowchart LR
     Redis -.->|idem:{id}| Idem[API Idempotency]
     Redis -.->|vel:user:{user_id}| SenderVelocity[Sender Velocity]
     Redis -.->|vel:merch:{merchant_id}| ReceiverSwarm[Receiver Swarm]
-```
+
 
 ---
 
@@ -66,12 +66,12 @@ The full system runs locally through Docker Compose.
 
 ### Run the Full System
 
-```bash
+
 git clone https://github.com/Izumizon/realtime-fraud-engine.git
 cd realtime-fraud-engine
 
 docker compose up --build
-```
+
 
 This starts:
 
@@ -86,31 +86,34 @@ This starts:
 
 ---
 
+For a guided walkthrough, see:
+[Demo Guide](docs/demo.md).
+
 ## ✅ Verify the System
 
 ### API Health Check
 
 In a second terminal:
 
-```bash
+
 curl http://localhost:8000/health
-```
+
 
 Expected response:
 
-```json
+
 {
   "status": "healthy"
 }
-```
+
 
 ### Open the Fraud Dashboard
 
 Once the system is running, open:
 
-```bash
+
 http://localhost:8080
-```
+
 
 The dashboard updates automatically as the traffic simulator generates transactions.
 
@@ -134,7 +137,7 @@ The dashboard displays:
 * Color-coded decision statuses
 * Color-coded fraud reason badges
 * Top triggered fraud vectors
-* Transaction detail pages by `trace_id`
+* Transaction detail pages by trace_id
 
 Status colors:
 
@@ -165,13 +168,13 @@ Analysts can click any Trace ID in the live feed to open a transaction detail pa
 
 To view the fraud engine logs:
 
-```bash
+
 docker compose logs -f fraud_engine
-```
+
 
 Example structured decision log:
 
-```json
+json
 {
   "event": "transaction_decision",
   "service": "fraud_engine",
@@ -188,7 +191,7 @@ Example structured decision log:
   "sender_velocity_count": 1,
   "receiver_unique_sender_count": 1
 }
-```
+
 
 ---
 
@@ -263,12 +266,12 @@ These are intentionally out of scope for the current portfolio version.
 
 # 2. Service Ownership
 
-## `api_gateway` — FastAPI Hot Path
+## api_gateway - FastAPI Hot Path
 
 The API Gateway owns:
 
 * HTTP request validation
-* `Idempotency-Key` enforcement
+* Idempotency-Key enforcement
 * Redis idempotency state transitions
 * Kafka event publishing
 * Health check endpoint
@@ -279,26 +282,26 @@ It does not own long-term analytics or ledger persistence.
 
 Endpoint:
 
-```http
+
 POST /api/v1/transactions
-```
+
 
 Required headers:
 
-```http
+
 Idempotency-Key: <uuid>
 Authorization: Bearer <token>
-```
+
 
 Optional header:
 
-```http
+
 X-Trace-Id: <trace-id>
-```
+
 
 Example payload:
 
-```json
+json
 {
   "transaction_id": "550e8400-e29b-41d4-a716-446655440000",
   "user_id": "user_1001",
@@ -312,21 +315,21 @@ Example payload:
     "password_reset_24h": false
   }
 }
-```
+
 
 Financial amounts are represented as integer minor units.
 
 Example:
 
-```text
+text
 £10.50 = 1050
-```
+
 
 This avoids floating-point precision errors.
 
 ---
 
-## `fraud_engine` — Kafka Consumer / Intelligence Layer
+## fraud_engine — Kafka Consumer / Intelligence Layer
 
 The fraud engine owns:
 
@@ -343,7 +346,7 @@ It does not own HTTP request handling.
 
 ---
 
-## `traffic_simulator` — Calibrated Transaction Generator
+## traffic_simulator — Calibrated Transaction Generator
 
 The traffic simulator owns synthetic transaction generation.
 
@@ -358,7 +361,7 @@ The simulator is calibrated so normal traffic does not accidentally trigger ever
 
 ---
 
-## `fraud_dashboard` — Read-Only Operations View
+## fraud_dashboard — Read-Only Operations View
 
 The dashboard owns:
 
@@ -410,9 +413,9 @@ Redis is used for short-lived, low-latency fraud state.
 
 Redis key:
 
-```text
+text
 vel:user:{user_id}
-```
+
 
 Purpose:
 
@@ -424,9 +427,9 @@ This models bot-like behaviour, repeated payment attempts, or compromised accoun
 
 Redis key:
 
-```text
+text
 vel:merch:{merchant_id}
-```
+
 
 Purpose:
 
@@ -490,7 +493,7 @@ The ledger includes:
 * receiver_unique_sender_count
 * received_at
 
-`transaction_id` is the primary key.
+transaction_id is the primary key.
 
 Duplicate inserts are ignored using PostgreSQL conflict handling, protecting the ledger from duplicate Kafka delivery or consumer retry behaviour.
 
@@ -502,11 +505,11 @@ Redis stores ephemeral fraud and idempotency state.
 
 Current key patterns:
 
-```text
+text
 idem:{id}
 vel:user:{user_id}
 vel:merch:{merchant_id}
-```
+
 
 Redis keys use TTLs so stale risk state naturally expires.
 
@@ -516,9 +519,9 @@ Redis keys use TTLs so stale risk state naturally expires.
 
 Current Kafka topic:
 
-```text
+text
 payment_transactions
-```
+
 
 The API Gateway and traffic simulator publish transaction events into this topic.
 
@@ -551,14 +554,14 @@ Each transaction decision includes:
 
 Example decision reasons:
 
-```text
+text
 new_payee
 recent_password_reset
 panic_execution_speed
 sender_velocity_exceeded
 receiver_swarm_detected
 redis_unavailable_static_only
-```
+
 
 Kafka offset commits are logged after successful processing.
 
@@ -572,27 +575,27 @@ The project includes automated testing, linting, and type checking.
 
 ## Run Tests
 
-```bash
+
 python -m pytest
-```
+
 
 Current status:
 
-```text
+text
 24 passed
-```
+
 
 ## Run Ruff
 
-```bash
+
 python -m ruff check .
-```
+
 
 ## Run mypy
 
-```bash
+
 python -m mypy .
-```
+
 
 ## Test Coverage Includes
 
@@ -623,59 +626,59 @@ GitHub Actions runs:
 
 ## Start full system
 
-```bash
+
 docker compose up --build
-```
+
 
 ## Start in detached mode
 
-```bash
+
 docker compose up --build -d
-```
+
 
 ## Stop system
 
-```bash
+
 docker compose down
-```
+
 
 ## Reset all data
 
-```bash
+
 docker compose down -v
-```
+
 
 ## View all logs
 
-```bash
+
 docker compose logs -f
-```
+
 
 ## View fraud engine logs only
 
-```bash
+
 docker compose logs -f fraud_engine
-```
+
 
 ## View dashboard logs only
 
-```bash
+
 docker compose logs -f fraud_dashboard
-```
+
 
 ## Open a transaction detail page
 
 Click any Trace ID in the dashboard, or open:
 
-```bash
+
 http://localhost:8080/transactions/<trace_id>
 
 
 ## Run tests locally
 
-```bash
+
 python -m pytest
-```
+
 
 ---
 
