@@ -1,8 +1,8 @@
-\# ADR 0001 — Use Redis for Hot Fraud State
+&#x20;ADR 0001 — Use Redis for Hot Fraud State
 
 
 
-\## Status
+&#x20;Status
 
 
 
@@ -10,7 +10,7 @@ Accepted
 
 
 
-\## Context
+&#x20;Context
 
 
 
@@ -38,7 +38,7 @@ Local Python memory would not be safe because each process would only see the tr
 
 
 
-\## Decision
+&#x20;Decision
 
 
 
@@ -62,11 +62,11 @@ Redis Lua scripts are used for atomic state transitions and sliding-window updat
 
 
 
-\## Consequences
+&#x20;Consequences
 
 
 
-\### Benefits
+&#x20;Benefits
 
 
 
@@ -82,7 +82,7 @@ Redis Lua scripts are used for atomic state transitions and sliding-window updat
 
 
 
-\### Tradeoffs
+&#x20;Tradeoffs
 
 
 
@@ -96,11 +96,11 @@ Redis Lua scripts are used for atomic state transitions and sliding-window updat
 
 
 
-\## Alternatives Considered
+&#x20;Alternatives Considered
 
 
 
-\### Local Python Memory
+&#x20;Local Python Memory
 
 
 
@@ -108,7 +108,7 @@ Rejected because it breaks under horizontal scaling.
 
 
 
-\### PostgreSQL
+&#x20;PostgreSQL
 
 
 
@@ -116,7 +116,7 @@ Rejected for hot fraud state because frequent sliding-window updates would creat
 
 
 
-\### Kafka
+&#x20;Kafka
 
 
 

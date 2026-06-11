@@ -1,8 +1,8 @@
-\# ADR 0003 — Use PostgreSQL for the Transaction Ledger
+&#x20;ADR 0003 — Use PostgreSQL for the Transaction Ledger
 
 
 
-\## Status
+&#x20;Status
 
 
 
@@ -10,7 +10,7 @@ Accepted
 
 
 
-\## Context
+&#x20;Context
 
 
 
@@ -40,7 +40,7 @@ A fraud detection system needs durable records for:
 
 
 
-\## Decision
+&#x20;Decision
 
 
 
@@ -88,11 +88,11 @@ transaction\_id is used as the primary key to prevent duplicate ledger records.
 
 
 
-\## Consequences
+&#x20;Consequences
 
 
 
-\### Benefits
+&#x20;Benefits
 
 
 
@@ -108,7 +108,7 @@ transaction\_id is used as the primary key to prevent duplicate ledger records.
 
 
 
-\### Tradeoffs
+&#x20;Tradeoffs
 
 
 
@@ -120,11 +120,11 @@ transaction\_id is used as the primary key to prevent duplicate ledger records.
 
 
 
-\## Alternatives Considered
+&#x20;Alternatives Considered
 
 
 
-\### Redis
+&#x20;Redis
 
 
 
@@ -132,7 +132,7 @@ Rejected as the durable ledger because Redis is transient hot state.
 
 
 
-\### Kafka
+&#x20;Kafka
 
 
 
@@ -140,7 +140,7 @@ Rejected as the ledger because Kafka is an event log, not the authoritative quer
 
 
 
-\### SQLite
+&#x20;SQLite
 
 
 

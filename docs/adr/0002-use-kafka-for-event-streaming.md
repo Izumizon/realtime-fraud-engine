@@ -1,8 +1,8 @@
-\# ADR 0002 — Use Kafka for Event Streaming
+&#x20;ADR 0002 — Use Kafka for Event Streaming
 
 
 
-\## Status
+&#x20;Status
 
 
 
@@ -10,7 +10,7 @@ Accepted
 
 
 
-\## Context
+&#x20;Context
 
 
 
@@ -26,7 +26,7 @@ Kafka also provides a realistic event-driven architecture for a fintech-style ba
 
 
 
-\## Decision
+&#x20;Decision
 
 
 
@@ -54,11 +54,11 @@ The fraud engine consumer reads from Kafka, evaluates fraud risk, writes the fin
 
 
 
-\## Consequences
+&#x20;Consequences
 
 
 
-\### Benefits
+&#x20;Benefits
 
 
 
@@ -74,7 +74,7 @@ The fraud engine consumer reads from Kafka, evaluates fraud risk, writes the fin
 
 
 
-\### Tradeoffs
+&#x20;Tradeoffs
 
 
 
@@ -88,7 +88,7 @@ The fraud engine consumer reads from Kafka, evaluates fraud risk, writes the fin
 
 
 
-\## Important Design Boundary
+&#x20;Important Design Boundary
 
 
 
@@ -104,11 +104,11 @@ The durable source of truth is PostgreSQL, not Kafka.
 
 
 
-\## Alternatives Considered
+&#x20;Alternatives Considered
 
 
 
-\### Direct API-to-Database Writes
+&#x20;Direct API-to-Database Writes
 
 
 
@@ -116,7 +116,7 @@ Rejected because it would tightly couple request handling, fraud processing, and
 
 
 
-\### In-Memory Queue
+&#x20;In-Memory Queue
 
 
 
@@ -124,7 +124,7 @@ Rejected because it would not survive process restarts and would not model produ
 
 
 
-\### RabbitMQ
+&#x20;RabbitMQ
 
 
 
