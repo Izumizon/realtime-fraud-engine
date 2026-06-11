@@ -14,11 +14,27 @@ Accepted
 
 
 
-The fraud engine needs to evaluate short-lived risk signals quickly, including sender velocity, receiver swarm behaviour, and API idempotency state.
+The fraud engine needs to evaluate short-lived risk signals quickly.
 
 
 
-These checks must work even if the application is horizontally scaled across multiple service instances. Local Python memory would not be safe because each instance would only see its own traffic.
+These signals include:
+
+
+
+\* API idempotency state
+
+\* sender velocity windows
+
+\* receiver swarm windows
+
+
+
+These checks must remain correct even if the system is horizontally scaled across multiple service instances.
+
+
+
+Local Python memory would not be safe because each process would only see the traffic routed to that specific instance. This would make velocity and swarm detection inconsistent under load balancing.
 
 
 
@@ -34,15 +50,15 @@ Redis stores:
 
 
 
-\- API idempotency keys
+\* idempotency keys
 
-\- sender velocity sliding windows
+\* sender velocity sliding windows
 
-\- receiver swarm sliding windows
+\* receiver swarm sliding windows
 
 
 
-Redis Lua scripts are used where atomic updates are required.
+Redis Lua scripts are used for atomic state transitions and sliding-window updates where correctness depends on multiple operations happening together.
 
 
 
@@ -54,15 +70,15 @@ Redis Lua scripts are used where atomic updates are required.
 
 
 
-\- Low-latency fraud checks
+\* Low-latency fraud checks
 
-\- Shared state across service instances
+\* Shared state across service instances
 
-\- TTL support for automatically expiring old fraud state
+\* Built-in TTL support for expiring old fraud state
 
-\- Atomic updates through Lua scripts
+\* Atomic updates through Lua scripts
 
-\- Better scalability than local in-memory state
+\* Better scalability than local in-memory state
 
 
 
@@ -70,13 +86,13 @@ Redis Lua scripts are used where atomic updates are required.
 
 
 
-\- Redis becomes a dependency for the hot path
+\* Redis becomes a critical dependency for hot-path fraud checks
 
-\- Redis outages require fallback behaviour
+\* Redis outages require fallback or degraded behaviour
 
-\- Lua scripts add implementation complexity
+\* Lua scripts add implementation complexity
 
-\- Redis state is transient and must not be treated as the durable source of truth
+\* Redis state is transient and must not be treated as the durable source of truth
 
 
 
@@ -88,7 +104,7 @@ Redis Lua scripts are used where atomic updates are required.
 
 
 
-Rejected because it would break under horizontal scaling.
+Rejected because it breaks under horizontal scaling.
 
 
 
@@ -96,7 +112,7 @@ Rejected because it would break under horizontal scaling.
 
 
 
-Rejected for hot fraud state because repeated sliding-window updates would add unnecessary latency and database load.
+Rejected for hot fraud state because frequent sliding-window updates would create unnecessary database load and latency.
 
 
 
@@ -104,5 +120,7 @@ Rejected for hot fraud state because repeated sliding-window updates would add u
 
 
 
-Rejected for hot-path state because Kafka is asynchronous and not suitable for immediate authorization state lookups.
+Rejected for hot-path state because Kafka is asynchronous and not suitable for immediate fraud state lookups.
+
+
 
